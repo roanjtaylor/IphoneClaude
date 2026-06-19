@@ -14,44 +14,108 @@ Where the app is today and what's needed to make it a fully functional Claude ap
 - Dark, Claude-styled single chat screen: bubbles, input, typing indicator, auto-scroll,
   error messages.
 
-## ❌ Missing — to become a "proper" app
+## ✅ Phase 2 — feature parity (built; pending on-device verification on the iPhone 7)
 
-### High priority (biggest feel/usability gains)
-- [ ] **Render Markdown in replies.** The model sends Markdown but the UI shows it raw
-      (literal `**bold**`, `#` headings, plain URLs). Add a Markdown renderer to the message
-      bubble (`app/App.tsx`). *Single biggest UX jump.*
-- [ ] **Custom app logo + icon** (see spec below). Currently the Expo default icon.
-- [ ] **Persist conversations.** Chat is wiped on app close. Store locally (and/or
-      server-side); add a history/list of past chats and "new chat".
-- [ ] **Visible web search.** Show a "Searching the web…" state and render sources as tappable
-      links instead of raw URLs.
+A major refactor brought the app to chat feature-parity with the official Claude app. The
+monolithic `app/App.tsx` is now a navigated, persisted, multi-screen app. Server gained
+multimodal input, abort-on-disconnect, web-tool visibility, and a title endpoint. All server
+endpoints were validated locally via `curl` (text stream, image multimodal, web search +
+sources, title). The app bundles cleanly for iOS. **Still to do: run it on the phone via
+Expo Go / TestFlight, and the production-secret steps at the bottom.**
+
+### High priority — done
+- [x] **Render Markdown in replies** — `react-native-markdown-display` via
+      `app/src/components/MarkdownMessage.tsx` (headings, bold, lists, tables, links, images),
+      with fenced code blocks delegated to `CodeBlock.tsx` (lightweight highlight + copy). Renders
+      plain text while streaming, upgrades to Markdown on completion (iPhone-7 perf).
+- [x] **Custom app logo + icon** — `app/assets/icon.png` (1024², orange burst on white) exported
+      from `icon.svg`, wired in `app.config.ts` + a matching splash.
+- [x] **Persist conversations** — `expo-sqlite` (`app/src/storage/db.ts`), a chat-list home
+      screen with new/rename/delete, and auto-titling via `POST /api/title`.
+- [x] **Visible web search** — "Searching the web…" banner + tappable source chips
+      (`SourcesList.tsx`); server emits `tool` / `sources` SSE events.
+
+### Medium priority — done
+- [x] **Stop button** — client `AbortController` + server abort-on-disconnect (`res` close).
+- [x] **Copy message** + **regenerate** + **share/export reply** (`MessageActions.tsx`).
+- [x] **Settings screen** — server URL/secret, model picker, system prompt, test connection;
+      runtime overrides via `SettingsContext` + AsyncStorage (no rebuild).
+- [x] **Wake-from-sleep UX** — "Waking Claude up…" banner after 3 s + keep-warm `/api/health`
+      ping on focus.
+
+### Lower priority — done
+- [x] Attachments — image (library/camera) + document (PDF/text) via `expo-image-picker` /
+      `expo-document-picker`, downscaled, sent as base64 content blocks (multimodal, validated).
+- [x] Markdown extras — code blocks with (lightweight) highlighting + copy-code button.
+- [x] Haptics (send/copy) + message timestamps.
+- [x] Move `appSharedSecret` out of `app.json` → `app.config.ts` reads it from env (`.env`
+      locally, EAS secret for prod). `app.json` deleted.
+
+### ⚠️ Before the next production build
+- [ ] **Rotate `APP_SHARED_SECRET`** on the HF Space (the old value is in git history) and set
+      the new value as an EAS secret: `eas env:create --name APP_SHARED_SECRET ...`. Local dev
+      already reads it from the gitignored `app/.env`.
+- [ ] **On-device pass** on the iPhone 7 (Expo Go tunnel, then TestFlight build): markdown,
+      persistence across app kill, attachments, web-search sources, stop, copy/export/regenerate.
+
+## 🎯 Remaining gaps to fully match the official Claude app
+
+Chat parity is built; these are the features the official app still has that this one doesn't.
+Ordered by how much they close the gap for a single-user phone client.
+
+### High priority
+- [ ] **Edit & resubmit a user message** + **branch** from an earlier turn (official lets you
+      edit a sent prompt and re-run; we only regenerate the last turn).
+- [ ] **Search conversations** — a search bar over saved chat titles + message text
+      (`storage/db.ts` already has the data; add a `searchMessages()` + a search screen).
+- [ ] **Incremental Markdown while streaming** — currently plain text until the turn completes
+      (iPhone-7 perf tradeoff). Try throttled (~5–8 fps) live Markdown with `React.memo`, falling
+      back to plain on older hardware.
+- [ ] **Inline numbered citations** — render `[1]`, `[2]` footnote markers in the answer text
+      that link to the sources list, instead of only a separate "Sources" block.
+- [ ] **System appearance (light/dark)** — the official app follows the OS theme; we're dark-only.
+      Add a light palette to `theme.ts` and honor `useColorScheme()` (+ a Settings toggle).
 
 ### Medium priority
-- [ ] **Stop button** to cancel an in-flight response (server already has an `AbortController`).
-- [ ] **Copy message** + **regenerate** actions.
-- [ ] **Settings screen** — switch model, edit system prompt, set server URL/secret without a
-      rebuild.
-- [ ] **Wake-from-sleep UX.** HF Space sleeps after ~48 h idle → first prompt is slow; show a
-      "waking up…" state (and/or a keep-warm ping).
+- [ ] **Response style / custom instructions** — a preset picker (Normal / Concise / Explanatory /
+      Formal) + free-text custom instructions, layered onto the system prompt per chat.
+- [ ] **Share / export a whole conversation** (not just one reply) via the iOS share sheet as
+      Markdown; optionally copy-all.
+- [ ] **Pin / archive chats** and basic organization (folders or favourites) in the chat list.
+- [ ] **Real syntax highlighting** — replace the lightweight tokenizer (`components/highlight.ts`)
+      with full language grammars + a theme, if it stays smooth on the iPhone 7.
+- [ ] **Attachment polish** — paste an image into the input, attach from the Files app, show
+      size/type limits and a clearer per-attachment error; consider remembering historical
+      attachments across turns (server currently only sends current-turn attachments).
+- [ ] **Stop → resume / retry affordance** and a clearer "stopped" state on a cancelled reply.
 
-### Lower priority / nice-to-have
-- [ ] Attachments — paste/upload an image or file into a prompt.
-- [ ] Markdown extras — code blocks with syntax highlighting, copy-code button.
-- [ ] Haptics / send sound, message timestamps.
-- [ ] Move `appSharedSecret` out of `app.json` into an EAS build-time secret.
+### Lower priority / larger efforts
+- [ ] **Server-side sync (multi-device)** — history is local-only today. To match cross-device
+      sync, persist conversations on the server (per-user) and sync. Large; only matters if used
+      on more than one device.
+- [ ] **Projects** — group chats with shared "project knowledge" files. Sizeable feature.
+- [ ] **Artifacts** — a preview pane for generated code/HTML/documents.
+- [ ] **Voice dictation / voice mode** — mic-to-text input (iOS 15 speech support on RN is
+      finicky — spike first).
+- [ ] **Push notifications** when a long reply finishes while backgrounded.
+- [ ] **Extended-thinking toggle + display** (show/hide reasoning), if exposed by the SDK.
 
-### Phase 3 (separate effort)
+### Explicitly out of scope (for now)
+- **Image generation** (Claude can't natively; would need an external paid image API).
+- **Account/login & usage-limit UI** — N/A for a single-user, shared-secret app.
+
+## Phase 3 (separate effort)
 - [ ] **Code from the phone** — drive Claude Code against a GitHub repo on the same server to
       edit/commit/push. See [`plan/ethos.md`](plan/ethos.md).
 
-## 🎨 Logo spec
+## 🎨 Logo spec — ✅ shipped
 
-**Concept:** the inverse of the official Claude app icon — instead of a white symbol on the
-clay/orange background, use an **orange symbol on a white background**.
+**Concept:** the inverse of the official Claude app icon — an **orange symbol on a white
+background** (white symbol on clay/orange, inverted).
 
 - Symbol: the Claude "burst" mark (radiating spokes), in Claude clay-orange **`#D97757`**.
 - Background: **white** (`#FFFFFF`), filling the icon (iOS masks the corners).
-- Deliverables: `app/assets/icon.png` at **1024×1024**, plus referencing it in `app.json`
-  (`expo.ios.icon` / `expo.icon`). Optionally a matching splash.
-- A starter **`app/assets/icon.svg`** (white bg, orange burst) is included — export it to a
-  1024×1024 PNG, drop it in `app/assets/`, wire it in `app.json`, and rebuild.
+- **Done:** `app/assets/icon.svg` is exported to `app/assets/icon.png` (1024×1024, alpha
+  flattened to white for iOS) and `splash-icon.png`, wired via `app.config.ts` (`expo.icon` +
+  the `expo-splash-screen` plugin, white background). Re-export with `sharp-cli` if the SVG
+  changes: `npx sharp-cli -i ./assets/icon.svg -o ./assets/icon.png resize 1024 1024 -- flatten --background "#FFFFFF"`.

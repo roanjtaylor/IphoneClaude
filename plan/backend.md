@@ -12,20 +12,31 @@ generalised from the sibling `a_TasteTrainer` server (one-shot → multi-turn ch
   Claude Code CLI which authenticates from the subscription's OAuth credentials. Locally
   that's `~/.claude/.credentials.json` (from `claude login`); on the host it's the
   `CLAUDE_CODE_OAUTH_TOKEN` env var (from `claude setup-token`).
-- **Model:** `claude-opus-4-8` (`server/src/config.ts`, override via `CLAUDE_MODEL`).
+- **Model:** `claude-opus-4-8` default (`server/src/config.ts`, override via `CLAUDE_MODEL`),
+  but the client may pass a per-request `model` and `systemPrompt` (from the app's Settings).
 - **Tools:** `allowedTools: ['WebSearch', 'WebFetch']` — enough to mirror the real app's
   live answers, nothing that touches the host filesystem or shell. `maxTurns: 12` allows a
   search → read → answer round-trip. A 180 s timeout + `AbortController` prevents stuck
-  subprocesses.
-- **Conversation:** stateless on the server — the app sends the full history each request,
-  which `buildPrompt()` flattens into one prompt (newest message = current turn).
+  subprocesses; the route also **aborts the subprocess when the client disconnects** (stop
+  button / dropped connection) via `res` `'close'`.
+- **Web-tool visibility:** the stream loop watches for `tool_use` blocks and tool results and
+  emits `tool` / `sources` SSE events so the app can show a "Searching the web…" state and
+  tappable source links.
+- **Conversation & attachments:** stateless on the server — the app sends the full history each
+  request. Text turns are flattened into one prompt; when the current turn has **attachments**,
+  `server/src/services/claude.ts` switches to the SDK's streaming-input mode and passes the user
+  turn as Anthropic content blocks (`{type:'image'|'document', source:{type:'base64',…}}`) —
+  still `query()`, still subscription auth.
 
 ## API
 
 | Method | Path | Notes |
 | --- | --- | --- |
-| `GET`  | `/api/health` | `{ ok: true }`. Public (no secret) — used for liveness. |
-| `POST` | `/api/chat`   | Body `{ messages: [{role, content}] }`. Streams SSE: `delta {text}` … `done {}` (or `error {error}`). Requires `x-app-secret`. |
+| `GET`  | `/api/health` | `{ ok: true }`. Public (no secret) — liveness + keep-warm. |
+| `POST` | `/api/chat`   | Body `{ messages: [{role, content, attachments?}], model?, systemPrompt? }`. Streams SSE: `delta {text}` · `tool {name,query?}` · `sources {sources}` … then `done {}` (or `error {error}`). Aborts on client disconnect. Requires `x-app-secret`. |
+| `POST` | `/api/title`  | Body `{ user, assistant?, model? }` → `{ title }`. One short non-streaming call to auto-name a chat after its first exchange. Requires `x-app-secret`. |
+
+JSON body limit is **15 mb** (base64 attachments inflate ~33%).
 
 ## Security
 

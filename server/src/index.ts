@@ -9,10 +9,12 @@ import express, { type NextFunction, type Request, type Response } from 'express
 import cors from 'cors';
 import { PORT, APP_SHARED_SECRET } from './config.ts';
 import { chatRouter } from './routes/chat.ts';
+import { titleRouter } from './routes/title.ts';
 
 const app = express();
 app.use(cors());
-app.use(express.json({ limit: '5mb' }));
+// 15mb: base64-encoded image/document attachments inflate ~33% over their byte size.
+app.use(express.json({ limit: '15mb' }));
 
 // Public liveness check — registered BEFORE the auth gate so monitors don't need the
 // secret.
@@ -30,6 +32,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 });
 
 app.use('/api/chat', chatRouter);
+app.use('/api/title', titleRouter);
 
 // Turn anything a route throws into JSON the client can display, not a bare 500.
 app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {

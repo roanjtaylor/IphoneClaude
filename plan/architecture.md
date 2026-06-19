@@ -6,11 +6,12 @@ Two components, talking over HTTPS. That's the whole system.
 iPhone 7 (iOS 15.8.5, TestFlight)        Hugging Face Space (Docker, always-on)
 ┌────────────────────────────┐  HTTPS   ┌─────────────────────────────────────┐
 │ Expo / React Native app    │  (SSE)   │ Node + Express "Claude server"      │
-│  - chat screen, streaming  │ ───────► │  POST /api/chat  (multi-turn, SSE)  │
-│  - x-app-secret header     │ ◄─────── │  @anthropic-ai/claude-agent-sdk     │
-│  (built by EAS → TestFlight)│         │  NO ANTHROPIC_API_KEY ⇒ subscription│
-└────────────────────────────┘          │  auth via CLAUDE_CODE_OAUTH_TOKEN   │
-                                         │  tools: WebSearch + WebFetch        │
+│  - chat list + chat + setts │ ───────► │  POST /api/chat   (SSE, multimodal) │
+│  - Markdown, attachments    │          │  POST /api/title  GET /api/health   │
+│  - SQLite history (local)   │ ◄─────── │  @anthropic-ai/claude-agent-sdk     │
+│  - x-app-secret header      │          │  NO ANTHROPIC_API_KEY ⇒ subscription│
+│  (built by EAS → TestFlight)│          │  auth via CLAUDE_CODE_OAUTH_TOKEN   │
+└────────────────────────────┘          │  tools: WebSearch + WebFetch        │
                                          └─────────────────────────────────────┘
 ```
 
@@ -19,8 +20,8 @@ iPhone 7 (iOS 15.8.5, TestFlight)        Hugging Face Space (Docker, always-on)
 | | Frontend (the app) | Backend (the brain) |
 | --- | --- | --- |
 | Runs on | iPhone 7 | Hugging Face Spaces (free Docker, 16 GB RAM) |
-| Tech | Expo SDK 54, React Native 0.81, React 19, TypeScript | Node 20, Express, `@anthropic-ai/claude-agent-sdk`, `tsx` |
-| Job | Render chat, stream the reply | Call Claude on the subscription, stream tokens back |
+| Tech | Expo SDK 54, RN 0.81, React 19, TS; React Navigation, expo-sqlite, react-native-markdown-display, expo-image/document-picker | Node 20, Express, `@anthropic-ai/claude-agent-sdk`, `tsx` |
+| Job | Render Markdown chat, persist history locally, pick attachments, stream the reply | Call Claude on the subscription (text + multimodal), stream tokens/tools back |
 | Detail | [`frontend.md`](frontend.md) | [`backend.md`](backend.md) |
 
 ## Why the brain can't live on the phone
@@ -32,14 +33,18 @@ always-on Space (rather than the laptop) is what makes "laptop-free" true.
 
 ## Request flow
 
-1. You type a prompt; the app appends it to the in-memory conversation.
-2. App `POST`s `{ messages: [...] }` to `/api/chat` with the `x-app-secret` header.
-3. Server checks the secret, then calls the SDK's `query()` with the conversation, a
-   conversational system prompt, and `allowedTools: ['WebSearch', 'WebFetch']`.
+1. You type a prompt (optionally attaching photos/documents); the app writes the user turn to
+   SQLite and appends it to the on-screen conversation.
+2. App `POST`s `{ messages: [...], model?, systemPrompt? }` (attachments as base64 content
+   blocks) to `/api/chat` with the `x-app-secret` header.
+3. Server checks the secret, then calls the SDK's `query()` with the conversation (text, or a
+   streaming-input content-block message when attachments are present), the chosen model/system
+   prompt, and `allowedTools: ['WebSearch', 'WebFetch']`.
 4. The SDK spawns the Claude CLI, which authenticates with the **subscription** (because no
-   API key is set) and streams partial text back.
-5. The server forwards each chunk as an SSE `delta` event; the app appends it live. A final
-   `done` (or `error`) ends the stream.
+   API key is set) and streams partial text + tool activity back.
+5. The server forwards text as SSE `delta` events (plus `tool`/`sources` when web search runs);
+   the app appends them live, shows the search state, and renders sources. A final `done` (or
+   `error`) ends the stream, and the app persists the completed assistant turn to SQLite.
 
 ## Key tech decisions (and constraints behind them)
 

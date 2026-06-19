@@ -38,7 +38,10 @@ Current state and the backlog (including branding) live in the root [`../todo.md
 
 ## Where it can go
 
-- **Phase 2 — feel like the real app:** Markdown rendering, saved conversations, visible web
-  search with tappable sources, a custom logo.
+- **Phase 2 — feel like the real app: ✅ built.** Markdown rendering, saved conversations
+  (local SQLite + chat list), visible web search with tappable sources, attachments
+  (multimodal), a settings screen, stop / copy / regenerate / share, and a custom logo. Pending
+  on-device verification + production-secret rotation; remaining parity gaps are in
+  [`../todo.md`](../todo.md).
 - **Phase 3 — code from the phone:** drive Claude Code against a GitHub repo on the same
   always-on server to edit/commit/push from the iPhone. Reuses the entire backend below.

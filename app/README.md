@@ -9,17 +9,21 @@ A thin React Native (Expo) chat client for the iPhone 7. It calls the always-on 
 
 ## Configure
 
-Edit `app.json` → `expo.extra`:
+Config lives in **`app.config.ts`** (`expo.extra`), which reads `SERVER_URL` and
+`APP_SHARED_SECRET` from the environment. For local dev, put them in a gitignored **`.env`**:
 
-```jsonc
-"extra": {
-  "serverUrl": "https://roanjtaylor-iphone-claude.hf.space",
-  "appSharedSecret": "<must match the server's APP_SHARED_SECRET>",
-  "eas": { "projectId": "b5edb3ab-0c57-4b37-b3ee-af32fcdec02d" }
-}
+```sh
+# app/.env
+SERVER_URL=https://roanjtaylor-iphone-claude.hf.space
+APP_SHARED_SECRET=<must match the server's APP_SHARED_SECRET>
 ```
 
-For local testing against a server on your laptop, set `serverUrl` to your machine's LAN IP
+For production builds, set `APP_SHARED_SECRET` as an **EAS secret**
+(`eas env:create --name APP_SHARED_SECRET --value '<secret>' --environment production --visibility secret`).
+Either way, the in-app **Settings screen** can override the server URL / secret / model /
+system prompt at runtime — no rebuild needed.
+
+For local testing against a server on your laptop, set `SERVER_URL` to your machine's LAN IP
 (e.g. `http://192.168.1.20:5174`) — `localhost` from the phone points at the phone.
 
 ## Run in development

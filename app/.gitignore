@@ -7,3 +7,4 @@ web-build/
 
 # Local env / secrets
 .env*.local
+.env

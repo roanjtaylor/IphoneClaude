@@ -12,18 +12,35 @@ The "thin client": an Expo / React Native chat app that calls the server
   response body stream needed to read SSE.
 - **`expo-build-properties`** pins the **iOS deployment target to 15.1**; `newArchEnabled`
   is `true` (SDK 54 default, and what Expo Go runs).
-- Config (`app/app.json` → `expo.extra`): `serverUrl` and `appSharedSecret`, read at runtime
-  via `expo-constants` (`app/src/config.ts`).
+- **Config** lives in **`app/app.config.ts`** (a dynamic config that replaced the static
+  `app.json`). `expo.extra.serverUrl`/`appSharedSecret` are read from the environment at build
+  time — an **EAS secret** in production, a gitignored **`app/.env`** in local dev — and exposed
+  at runtime via `expo-constants` (`app/src/config.ts`). The **Settings screen overrides** any of
+  these without a rebuild (`app/src/storage/settings.ts`, `AsyncStorage`).
+- **Added libraries:** `@react-navigation/native` + `native-stack` + `react-native-screens`
+  (navigation), `@react-native-async-storage/async-storage` + `expo-sqlite` (persistence),
+  `react-native-markdown-display` (Markdown), `expo-image-picker` / `expo-document-picker` /
+  `expo-image-manipulator` (attachments), `expo-clipboard` / `expo-sharing` / `expo-haptics`
+  (copy/share/feedback), `expo-splash-screen`.
 
 ## What the app does today
 
-One dark, Claude-styled chat screen (`app/App.tsx`): message bubbles, a multiline input +
-send button, a typing indicator, auto-scroll, and inline error messages. It keeps the
-conversation in memory for the session and resends the full history each turn so follow-ups
-work. Tokens stream in live via SSE.
+A multi-screen, persisted chat app (entry: `app/App.tsx` → `src/navigation/RootStack.tsx`):
 
-Current limitations (raw Markdown, no persistence, no logo, etc.) are tracked in
-[`../todo.md`](../todo.md).
+- **Conversation list** (`src/screens/ConversationListScreen.tsx`) — saved chats newest-first,
+  with new / rename / delete and a gear → Settings.
+- **Chat** (`src/screens/ChatScreen.tsx`, `src/hooks/useChat.ts`) — live SSE token streaming;
+  **Markdown** rendering with code blocks (highlight + copy), tables, links and images
+  (`src/components/MarkdownMessage.tsx`, `CodeBlock.tsx`); **attachments** (photo/camera/
+  document, sent as multimodal content blocks); a **stop** button; **copy / regenerate / share**
+  per reply; **visible web search** ("Searching the web…" + tappable source chips); a
+  **"Waking Claude up…"** banner with a keep-warm ping; haptics and timestamps.
+- **Settings** (`src/screens/SettingsScreen.tsx`) — server URL/secret, model picker, system
+  prompt, and a "Test connection" ping, all overriding the build-time defaults at runtime.
+
+Conversations + messages persist in **SQLite** (`src/storage/db.ts`); attachment bytes live on
+disk (`src/storage/attachments.ts`). History is still resent to the (stateless) server each
+turn. Remaining gaps vs. the official app are tracked in [`../todo.md`](../todo.md).
 
 ## Identifiers (live)
 
@@ -74,7 +91,18 @@ from the phone — or leave it on the deployed HF URL to use the live server.
   `ios.image: "macos-sequoia-15.6-xcode-26.2"` here.) Building with the iOS 26 SDK does **not**
   raise the iOS-15.1 deployment floor, so the iPhone 7 still runs it.
 - `submit.production.ios.ascAppId: "6782166474"` — submits to the existing App Store app.
-- `app.json`: `ITSAppUsesNonExemptEncryption: false` (skips the export-compliance prompt).
+- `app.config.ts`: `ITSAppUsesNonExemptEncryption: false` (skips the export-compliance prompt).
+
+**Secret at build time:** `app.config.ts` reads `APP_SHARED_SECRET` (and `SERVER_URL`) from the
+environment. For a cloud EAS build, register it once as an EAS secret so the build picks it up:
+
+```bash
+cd app
+eas env:create --name APP_SHARED_SECRET --value '<secret>' --environment production --visibility secret
+```
+
+Local Expo Go reads the same vars from a gitignored `app/.env`. ⚠️ The original secret is in git
+history — **rotate it** on the HF Space and use the new value here.
 
 **Build + auto-submit (one command):**
 
