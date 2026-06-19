@@ -14,11 +14,16 @@
     "production": {
       "autoIncrement": true,
       "ios": {
-        "distribution": "store"
+        "distribution": "store",
+        "image": "macos-sequoia-15.6-xcode-26.2"
       }
     }
   },
   "submit": {
-    "production": {}
+    "production": {
+      "ios": {
+        "ascAppId": "6782166474"
+      }
+    }
   }
 }
