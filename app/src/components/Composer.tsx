@@ -1,6 +1,6 @@
 // The bottom input bar: text field, attach (photo/camera/document), pending-attachment
 // previews, and a send button that turns into a stop button while a reply streams.
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -13,7 +13,8 @@ import {
   View,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
-import { colors, radius, spacing } from '../theme';
+import { useTheme } from '../state/ThemeContext';
+import { radius, spacing, type Colors } from '../theme';
 import type { Attachment } from '../storage/types';
 import { deleteAttachment } from '../storage/attachments';
 import { pickDocument, pickImageFromLibrary, takePhoto } from '../lib/pickAttachment';
@@ -32,6 +33,8 @@ export function Composer({
   const [input, setInput] = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [picking, setPicking] = useState(false);
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
 
   const canSend = (input.trim().length > 0 || attachments.length > 0) && !busy;
 
@@ -138,70 +141,71 @@ export function Composer({
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.border,
-    backgroundColor: colors.bg,
-  },
-  pending: { paddingHorizontal: spacing.sm, paddingTop: spacing.sm },
-  pendingItem: { marginRight: spacing.sm },
-  pendingThumb: { width: 56, height: 56, borderRadius: 8, backgroundColor: colors.surfaceAlt },
-  pendingDoc: { alignItems: 'center', justifyContent: 'center', padding: 4 },
-  pendingDocText: { color: colors.text, fontSize: 9, textAlign: 'center' },
-  removeBadge: {
-    position: 'absolute',
-    top: -6,
-    right: -6,
-    backgroundColor: '#000',
-    borderRadius: 10,
-    width: 20,
-    height: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  removeBadgeText: { color: '#fff', fontSize: 14, lineHeight: 16 },
-  inputRow: { flexDirection: 'row', alignItems: 'flex-end', padding: spacing.sm, gap: spacing.sm },
-  attach: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.surface,
-  },
-  attachText: { color: colors.text, fontSize: 24, marginTop: -2 },
-  input: {
-    flex: 1,
-    maxHeight: 120,
-    minHeight: 44,
-    backgroundColor: colors.surface,
-    borderRadius: radius.input,
-    paddingHorizontal: spacing.lg,
-    paddingTop: 11,
-    paddingBottom: 11,
-    color: colors.textStrong,
-    fontSize: 16,
-  },
-  send: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: colors.accent,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  sendDisabled: { backgroundColor: colors.accentDim },
-  sendText: { color: colors.textOnAccent, fontSize: 20, fontWeight: '700', marginTop: -2 },
-  stop: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.accent,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  stopSquare: { width: 14, height: 14, borderRadius: 3, backgroundColor: colors.accent },
-});
+const makeStyles = (c: Colors) =>
+  StyleSheet.create({
+    container: {
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: c.border,
+      backgroundColor: c.bg,
+    },
+    pending: { paddingHorizontal: spacing.sm, paddingTop: spacing.sm },
+    pendingItem: { marginRight: spacing.sm },
+    pendingThumb: { width: 56, height: 56, borderRadius: 8, backgroundColor: c.surfaceAlt },
+    pendingDoc: { alignItems: 'center', justifyContent: 'center', padding: 4 },
+    pendingDocText: { color: c.text, fontSize: 9, textAlign: 'center' },
+    removeBadge: {
+      position: 'absolute',
+      top: -6,
+      right: -6,
+      backgroundColor: '#000',
+      borderRadius: 10,
+      width: 20,
+      height: 20,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    removeBadgeText: { color: '#fff', fontSize: 14, lineHeight: 16 },
+    inputRow: { flexDirection: 'row', alignItems: 'flex-end', padding: spacing.sm, gap: spacing.sm },
+    attach: {
+      width: 44,
+      height: 44,
+      borderRadius: 22,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: c.surface,
+    },
+    attachText: { color: c.text, fontSize: 24, marginTop: -2 },
+    input: {
+      flex: 1,
+      maxHeight: 120,
+      minHeight: 44,
+      backgroundColor: c.surface,
+      borderRadius: radius.input,
+      paddingHorizontal: spacing.lg,
+      paddingTop: 11,
+      paddingBottom: 11,
+      color: c.textStrong,
+      fontSize: 16,
+    },
+    send: {
+      width: 44,
+      height: 44,
+      borderRadius: 22,
+      backgroundColor: c.accent,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    sendDisabled: { backgroundColor: c.accentDim },
+    sendText: { color: c.textOnAccent, fontSize: 20, fontWeight: '700', marginTop: -2 },
+    stop: {
+      width: 44,
+      height: 44,
+      borderRadius: 22,
+      backgroundColor: c.surface,
+      borderWidth: 1,
+      borderColor: c.accent,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    stopSquare: { width: 14, height: 14, borderRadius: 3, backgroundColor: c.accent },
+  });

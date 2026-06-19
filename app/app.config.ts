@@ -11,7 +11,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   slug: 'claude7',
   owner: 'roanjtaylor',
   version: '1.0.0',
-  orientation: 'portrait',
+  // 'default' lets the phone rotate to landscape so wide tables/code blocks have room.
+  orientation: 'default',
   userInterfaceStyle: 'automatic',
   newArchEnabled: true,
   icon: './assets/icon.png',
@@ -45,6 +46,13 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       {
         photosPermission: 'Claude7 needs photo access to attach images to your messages.',
         cameraPermission: 'Claude7 needs camera access to attach photos to your messages.',
+      },
+    ],
+    [
+      'expo-media-library',
+      {
+        savePhotosPermission: 'Claude7 needs permission to save images to your photo library.',
+        isAccessMediaLocationEnabled: false,
       },
     ],
   ],

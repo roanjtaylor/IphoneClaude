@@ -1,7 +1,8 @@
 // Renders web sources discovered during an answer as tappable chips (Visible web search).
-import { memo } from 'react';
+import { memo, useMemo } from 'react';
 import { Linking, StyleSheet, Text, View } from 'react-native';
-import { colors, radius, spacing } from '../theme';
+import { useTheme } from '../state/ThemeContext';
+import { radius, spacing, type Colors } from '../theme';
 import type { Source } from '../storage/types';
 
 function hostOf(url: string): string {
@@ -13,6 +14,8 @@ function hostOf(url: string): string {
 }
 
 function SourcesListImpl({ sources }: { sources: Source[] }) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   if (!sources || sources.length === 0) return null;
   return (
     <View style={styles.wrap}>
@@ -35,17 +38,18 @@ function SourcesListImpl({ sources }: { sources: Source[] }) {
 
 export const SourcesList = memo(SourcesListImpl);
 
-const styles = StyleSheet.create({
-  wrap: { marginTop: spacing.sm },
-  label: { color: colors.textMuted, fontSize: 12, marginBottom: spacing.xs, fontWeight: '600' },
-  chips: { gap: spacing.xs },
-  chip: {
-    color: colors.link,
-    fontSize: 13,
-    backgroundColor: colors.surfaceAlt,
-    borderRadius: radius.card,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 6,
-    overflow: 'hidden',
-  },
-});
+const makeStyles = (c: Colors) =>
+  StyleSheet.create({
+    wrap: { marginTop: spacing.sm },
+    label: { color: c.textMuted, fontSize: 12, marginBottom: spacing.xs, fontWeight: '600' },
+    chips: { gap: spacing.xs },
+    chip: {
+      color: c.link,
+      fontSize: 13,
+      backgroundColor: c.surfaceAlt,
+      borderRadius: radius.card,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 6,
+      overflow: 'hidden',
+    },
+  });

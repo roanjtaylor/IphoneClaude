@@ -4,11 +4,12 @@ import type { RootStackParamList } from './types';
 import { ConversationListScreen } from '../screens/ConversationListScreen';
 import { ChatScreen } from '../screens/ChatScreen';
 import { SettingsScreen } from '../screens/SettingsScreen';
-import { colors } from '../theme';
+import { useTheme } from '../state/ThemeContext';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
 export function RootStack() {
+  const { colors } = useTheme();
   return (
     <Stack.Navigator
       screenOptions={{

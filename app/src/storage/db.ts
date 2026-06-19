@@ -55,6 +55,52 @@ export async function listConversations(): Promise<Conversation[]> {
   return rows;
 }
 
+export type ConversationSearchHit = { conversation: Conversation; snippet?: string };
+
+/**
+ * Search saved chats by title and by message text. Returns matching conversations
+ * (newest first), each with a short snippet of the first matching message when the hit
+ * came from message content. Single-user scale, so a couple of LIKE queries are plenty.
+ */
+export async function searchConversations(query: string): Promise<ConversationSearchHit[]> {
+  const q = query.trim();
+  if (!q) return [];
+  const db = await getDb();
+  // Escape LIKE wildcards so a literal % or _ in the query matches itself.
+  const like = `%${q.replace(/[%_\\]/g, (m) => `\\${m}`)}%`;
+  const rows = await db.getAllAsync<Conversation & { matchContent: string | null }>(
+    `SELECT c.*, (
+        SELECT m.content FROM messages m
+        WHERE m.conversationId = c.id AND m.content LIKE ? ESCAPE '\\'
+        ORDER BY m.createdAt ASC LIMIT 1
+      ) AS matchContent
+      FROM conversations c
+      WHERE c.title LIKE ? ESCAPE '\\'
+         OR EXISTS (
+           SELECT 1 FROM messages m2
+           WHERE m2.conversationId = c.id AND m2.content LIKE ? ESCAPE '\\'
+         )
+      ORDER BY c.updatedAt DESC`,
+    like,
+    like,
+    like,
+  );
+  return rows.map(({ matchContent, ...conversation }) => ({
+    conversation,
+    snippet: matchContent ? buildSnippet(matchContent, q) : undefined,
+  }));
+}
+
+/** A ~120-char window of `content` centered on the first case-insensitive match of `q`. */
+function buildSnippet(content: string, q: string): string {
+  const flat = content.replace(/\s+/g, ' ').trim();
+  const idx = flat.toLowerCase().indexOf(q.toLowerCase());
+  if (idx < 0) return flat.slice(0, 120);
+  const start = Math.max(0, idx - 40);
+  const end = Math.min(flat.length, idx + q.length + 80);
+  return `${start > 0 ? '…' : ''}${flat.slice(start, end)}${end < flat.length ? '…' : ''}`;
+}
+
 export async function getConversation(id: string): Promise<Conversation | null> {
   const db = await getDb();
   return (

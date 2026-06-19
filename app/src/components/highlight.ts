@@ -2,16 +2,15 @@
 // colors the common token classes (comments, strings, numbers, keywords) across most
 // C-family / scripting languages. Chosen over react-native-syntax-highlighter to avoid a
 // heavy dependency + module-resolution fragility on the iPhone 7 (see plan: perf cap).
-import { colors } from '../theme';
-
 export type Token = { text: string; color: string };
 
+// The earthy accent colours read well on both the dark and light code backgrounds; only
+// `plain` (ordinary text) needs to follow the theme, so it's passed in by the caller.
 const TOKEN_COLORS = {
-  comment: '#6a7a6a',
-  string: '#c2986a',
-  number: '#d19a66',
-  keyword: '#c678a8',
-  plain: colors.text,
+  comment: '#8a8f7a',
+  string: '#b07d4a',
+  number: '#c07a3a',
+  keyword: '#a85a8f',
 } as const;
 
 // A broad keyword set spanning JS/TS, Python, and other common languages. Highlighting a
@@ -28,8 +27,10 @@ const KEYWORDS = new Set([
   'use', 'mut', 'pub', 'impl', 'match', 'where',
 ]);
 
+type TokenClass = keyof typeof TOKEN_COLORS | 'plain';
+
 // Order matters: comments and strings first so their inner contents aren't re-tokenized.
-const PATTERNS: { re: RegExp; cls: keyof typeof TOKEN_COLORS }[] = [
+const PATTERNS: { re: RegExp; cls: TokenClass }[] = [
   { re: /\/\/[^\n]*|#[^\n]*|\/\*[\s\S]*?\*\//y, cls: 'comment' },
   { re: /"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`/y, cls: 'string' },
   { re: /\b\d[\d_.]*(?:e[+-]?\d+)?\b/iy, cls: 'number' },
@@ -38,8 +39,17 @@ const PATTERNS: { re: RegExp; cls: keyof typeof TOKEN_COLORS }[] = [
   { re: /[^A-Za-z0-9_$\s]+/y, cls: 'plain' }, // punctuation/operators
 ];
 
-/** Tokenize `code` into colored spans. Capped by the caller for large blocks. */
-export function tokenize(code: string): Token[] {
+/**
+ * Tokenize `code` into colored spans. `plainColor` is the theme's code-text colour, used
+ * for ordinary tokens (whitespace, punctuation, non-keyword identifiers). Capped by the
+ * caller for large blocks.
+ */
+export function tokenize(code: string, plainColor: string): Token[] {
+  const colorFor = (cls: TokenClass, text: string): string => {
+    if (cls === 'plain') return plainColor;
+    if (cls === 'keyword') return KEYWORDS.has(text) ? TOKEN_COLORS.keyword : plainColor;
+    return TOKEN_COLORS[cls];
+  };
   const tokens: Token[] = [];
   let i = 0;
   const n = code.length;
@@ -48,16 +58,13 @@ export function tokenize(code: string): Token[] {
       re.lastIndex = i;
       const m = re.exec(code);
       if (m && m.index === i && m[0].length > 0) {
-        const text = m[0];
-        let color: string = TOKEN_COLORS[cls];
-        if (cls === 'keyword') color = KEYWORDS.has(text) ? TOKEN_COLORS.keyword : TOKEN_COLORS.plain;
-        tokens.push({ text, color });
-        i += text.length;
+        tokens.push({ text: m[0], color: colorFor(cls, m[0]) });
+        i += m[0].length;
         continue outer;
       }
     }
     // Safety: consume one char so we never loop forever.
-    tokens.push({ text: code[i], color: TOKEN_COLORS.plain });
+    tokens.push({ text: code[i], color: plainColor });
     i += 1;
   }
   return tokens;

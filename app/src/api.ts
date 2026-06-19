@@ -147,6 +147,31 @@ export async function fetchTitle(
   }
 }
 
+/** Cumulative Claude usage totals reported by the server (estimates). */
+export type Usage = {
+  since: number;
+  requests: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  estimatedCostUsd: number;
+};
+
+/** Fetch cumulative usage totals from the server. Returns null if unreachable. */
+export async function fetchUsage(config: Pick<ApiConfig, 'serverUrl' | 'appSharedSecret'>): Promise<Usage | null> {
+  try {
+    const res = await fetch(`${config.serverUrl}/api/usage`, {
+      method: 'GET',
+      headers: { 'x-app-secret': config.appSharedSecret },
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as Usage;
+  } catch {
+    return null;
+  }
+}
+
 /** Liveness ping. Used to warm a sleeping host and to "Test connection" in Settings. */
 export async function pingHealth(config: Pick<ApiConfig, 'serverUrl'>): Promise<boolean> {
   try {

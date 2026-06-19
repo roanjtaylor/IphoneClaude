@@ -10,6 +10,14 @@ import type { Attachment } from '../storage/types';
 
 const MAX_EDGE = 1568;
 
+/**
+ * Re-encode a picked image to JPEG. This is essential on iOS: photos from the library are
+ * often HEIC/HEIF, which Claude cannot read — if we passed those bytes through (mislabeled
+ * as JPEG) the model would silently ignore the image. We force a real JPEG re-encode here.
+ * We try a downscale first (to fit the upload budget); if that throws we retry a plain
+ * JPEG conversion (no resize); only if BOTH fail do we give up (the caller surfaces an
+ * error) rather than send bytes that aren't actually JPEG.
+ */
 async function prepareImage(uri: string): Promise<{ uri: string; mediaType: string }> {
   try {
     const result = await manipulateAsync(uri, [{ resize: { width: MAX_EDGE } }], {
@@ -18,8 +26,11 @@ async function prepareImage(uri: string): Promise<{ uri: string; mediaType: stri
     });
     return { uri: result.uri, mediaType: 'image/jpeg' };
   } catch {
-    // If manipulation fails, fall back to the original.
-    return { uri, mediaType: 'image/jpeg' };
+    // Resize can fail on some HEIC sources; retry a straight JPEG re-encode. If this also
+    // throws, let it propagate — better a clear "couldn't attach" than a silently-ignored
+    // image.
+    const result = await manipulateAsync(uri, [], { compress: 0.7, format: SaveFormat.JPEG });
+    return { uri: result.uri, mediaType: 'image/jpeg' };
   }
 }
 

@@ -66,15 +66,49 @@ Ordered by how much they close the gap for a single-user phone client.
 ### High priority
 - [ ] **Edit & resubmit a user message** + **branch** from an earlier turn (official lets you
       edit a sent prompt and re-run; we only regenerate the last turn).
-- [ ] **Search conversations** — a search bar over saved chat titles + message text
-      (`storage/db.ts` already has the data; add a `searchMessages()` + a search screen).
+- [x] **Search conversations** — search bar on the chat list over titles + message text, with a
+      snippet of the matching message. `storage/db.ts` `searchConversations()` (title LIKE +
+      message-content EXISTS), debounced in `ConversationListScreen.tsx`.
 - [ ] **Incremental Markdown while streaming** — currently plain text until the turn completes
       (iPhone-7 perf tradeoff). Try throttled (~5–8 fps) live Markdown with `React.memo`, falling
       back to plain on older hardware.
 - [ ] **Inline numbered citations** — render `[1]`, `[2]` footnote markers in the answer text
       that link to the sources list, instead of only a separate "Sources" block.
-- [ ] **System appearance (light/dark)** — the official app follows the OS theme; we're dark-only.
-      Add a light palette to `theme.ts` and honor `useColorScheme()` (+ a Settings toggle).
+- [x] **System appearance (light/dark)** — light + dark palettes in `theme.ts`, resolved at
+      runtime by `state/ThemeContext.tsx` from `useColorScheme()` (live OS-following) or a
+      Settings override (System / Light / Dark). Every screen/component now reads its palette via
+      `useTheme()` + a `makeStyles(colors)` factory; nav theme + status bar follow too.
+
+### Usability — done (round 2)
+- [x] **Images actually analysed** — root cause was `pickAttachment.prepareImage` mislabeling
+      HEIC as JPEG when the resize step threw (iPhone library photos are HEIC, which Claude
+      can't read). Now forces a real JPEG re-encode (resize → plain-convert fallback → fail
+      loudly) so the model always gets readable bytes. Server (`claude.ts`) also normalizes /
+      validates `media_type` and logs attachments.
+- [x] **Horizontally scrollable tables** — `MarkdownMessage` wraps tables in a horizontal
+      `ScrollView` with min-width cells, so wide tables scroll instead of squashing.
+- [x] **Pinch-to-zoom chats** — the chat `FlatList` honours iOS `minimumZoomScale={0.5}` /
+      `maximumZoomScale={3}`, so you can pinch to zoom out (fit more) or in (read), web-style.
+- [x] **Chat list UX** — header **Edit** toggles rename (tap row) / delete (🗑) mode; a floating
+      orange **＋** button (bottom-right) starts a new chat; tap the chat **title** in a chat to
+      rename it in place. Mascot shown on empty states.
+- [x] **Save images from replies** — long-press an image in a reply → Save to Photos (via
+      `expo-media-library`) or Share (`components/SavableImage.tsx`).
+- [x] **Claude mascot** — `components/ClaudeMascot.tsx` (react-native-svg burst + eyes) on the
+      empty chat / empty list states.
+- [x] **Custom instructions** — the old "System prompt" field is kept but relabeled "Custom
+      instructions" with an explanation + example (it layers onto the system prompt per chat).
+- [x] **Usage view** — server accumulates token/cost estimates from each `result` message
+      (`services/usage.ts`, `GET /api/usage`); Settings shows replies / tokens / est. cost /
+      since-date with a Refresh.
+
+### Usability — done (round 1)
+- [x] **Landscape orientation** — `app.config.ts` orientation is now `default` (was `portrait`)
+      so the phone can rotate; wide Markdown tables / code blocks get the full landscape width.
+      (Native config — takes effect on the next Expo Go reload / dev-client or TestFlight build.)
+- [x] **Locked connection settings** — Server URL + shared secret are read-only in Settings
+      behind an explicit "🔒 Edit" unlock (with a confirm), so they can't be changed by accident
+      and silently break the app. Model / system prompt / appearance stay freely editable.
 
 ### Medium priority
 - [ ] **Response style / custom instructions** — a preset picker (Normal / Concise / Explanatory /

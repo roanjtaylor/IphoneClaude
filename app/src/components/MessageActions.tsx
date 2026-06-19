@@ -4,8 +4,9 @@ import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
 import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system/legacy';
-import { useState } from 'react';
-import { colors, spacing } from '../theme';
+import { useMemo, useState } from 'react';
+import { useTheme } from '../state/ThemeContext';
+import { spacing, type Colors } from '../theme';
 
 export function MessageActions({
   content,
@@ -17,6 +18,8 @@ export function MessageActions({
   canRegenerate?: boolean;
 }) {
   const [copied, setCopied] = useState(false);
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
 
   const copy = async () => {
     await Clipboard.setStringAsync(content);
@@ -57,7 +60,8 @@ export function MessageActions({
   );
 }
 
-const styles = StyleSheet.create({
-  row: { flexDirection: 'row', gap: spacing.lg, marginTop: spacing.xs, paddingLeft: 2 },
-  action: { color: colors.textMuted, fontSize: 13, fontWeight: '600' },
-});
+const makeStyles = (c: Colors) =>
+  StyleSheet.create({
+    row: { flexDirection: 'row', gap: spacing.lg, marginTop: spacing.xs, paddingLeft: 2 },
+    action: { color: c.textMuted, fontSize: 13, fontWeight: '600' },
+  });

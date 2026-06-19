@@ -2,9 +2,10 @@
 // render rich Markdown once COMPLETE (plain text while streaming — much cheaper to
 // re-render on the iPhone 7, see plan: streaming perf). Shows attachments, sources,
 // timestamp, and (for the latest assistant turn) copy/share/regenerate actions.
-import { memo } from 'react';
+import { memo, useMemo } from 'react';
 import { ActivityIndicator, Image, StyleSheet, Text, View } from 'react-native';
-import { colors, radius, spacing } from '../theme';
+import { useTheme } from '../state/ThemeContext';
+import { radius, spacing, type Colors } from '../theme';
 import type { Message } from '../storage/types';
 import { MarkdownMessage } from './MarkdownMessage';
 import { SourcesList } from './SourcesList';
@@ -19,7 +20,7 @@ function formatTime(ts: number): string {
   return `${h}:${m} ${ampm}`;
 }
 
-function AttachmentPreviews({ message }: { message: Message }) {
+function AttachmentPreviews({ message, styles }: { message: Message; styles: Styles }) {
   const atts = message.attachments ?? [];
   if (atts.length === 0) return null;
   return (
@@ -53,13 +54,15 @@ function MessageBubbleImpl({
   const isUser = message.role === 'user';
   const streaming = message.status === 'streaming';
   const empty = message.content.length === 0;
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
 
   return (
     <View style={[styles.row, isUser ? styles.rowUser : styles.rowAssistant]}>
       <View style={[styles.bubble, isUser ? styles.bubbleUser : styles.bubbleAssistant]}>
-        <AttachmentPreviews message={message} />
+        <AttachmentPreviews message={message} styles={styles} />
         {empty && busy ? (
-          <ActivityIndicator color="#bbb" size="small" />
+          <ActivityIndicator color={colors.textMuted} size="small" />
         ) : isUser ? (
           message.content.length > 0 ? (
             <Text style={styles.userText}>{message.content}</Text>
@@ -92,25 +95,28 @@ function MessageBubbleImpl({
 
 export const MessageBubble = memo(MessageBubbleImpl);
 
-const styles = StyleSheet.create({
-  row: { marginVertical: 4 },
-  rowUser: { alignItems: 'flex-end' },
-  rowAssistant: { alignItems: 'flex-start' },
-  bubble: { maxWidth: '88%', borderRadius: radius.bubble, paddingHorizontal: 14, paddingVertical: 10 },
-  bubbleUser: { backgroundColor: colors.accent },
-  bubbleAssistant: { backgroundColor: colors.surface },
-  userText: { color: colors.textOnAccent, fontSize: 16, lineHeight: 22 },
-  assistantText: { color: colors.text, fontSize: 16, lineHeight: 22 },
-  metaRow: { marginTop: 2, paddingHorizontal: 2 },
-  time: { color: colors.textFaint, fontSize: 11, marginTop: spacing.xs },
-  atts: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.xs },
-  thumb: { width: 120, height: 120, borderRadius: radius.card, backgroundColor: colors.surfaceAlt },
-  fileChip: {
-    backgroundColor: colors.surfaceAlt,
-    borderRadius: radius.card,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 6,
-    maxWidth: 200,
-  },
-  fileChipText: { color: colors.text, fontSize: 13 },
-});
+type Styles = ReturnType<typeof makeStyles>;
+
+const makeStyles = (c: Colors) =>
+  StyleSheet.create({
+    row: { marginVertical: 4 },
+    rowUser: { alignItems: 'flex-end' },
+    rowAssistant: { alignItems: 'flex-start' },
+    bubble: { maxWidth: '88%', borderRadius: radius.bubble, paddingHorizontal: 14, paddingVertical: 10 },
+    bubbleUser: { backgroundColor: c.accent },
+    bubbleAssistant: { backgroundColor: c.surface },
+    userText: { color: c.textOnAccent, fontSize: 16, lineHeight: 22 },
+    assistantText: { color: c.text, fontSize: 16, lineHeight: 22 },
+    metaRow: { marginTop: 2, paddingHorizontal: 2 },
+    time: { color: c.textFaint, fontSize: 11, marginTop: spacing.xs },
+    atts: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.xs },
+    thumb: { width: 120, height: 120, borderRadius: radius.card, backgroundColor: c.surfaceAlt },
+    fileChip: {
+      backgroundColor: c.surfaceAlt,
+      borderRadius: radius.card,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 6,
+      maxWidth: 200,
+    },
+    fileChipText: { color: c.text, fontSize: 13 },
+  });

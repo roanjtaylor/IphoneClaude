@@ -1,6 +1,8 @@
-// Runtime settings: server URL/secret, model, system prompt — overriding the build-time
-// defaults without a rebuild. "Test connection" pings /api/health.
-import { useState } from 'react';
+// Runtime settings: appearance (light/dark/system), model, system prompt, and — behind an
+// explicit unlock — the server URL/secret. The connection fields are locked by default so
+// they can't be changed by accident (a wrong URL/secret silently breaks the app).
+// "Test connection" pings /api/health.
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Pressable,
@@ -12,19 +14,61 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useSettings } from '../state/SettingsContext';
-import { defaultSettings } from '../storage/settings';
+import { useTheme } from '../state/ThemeContext';
+import { defaultSettings, type ThemeMode } from '../storage/settings';
 import { MODEL_OPTIONS } from '../config';
-import { pingHealth } from '../api';
-import { colors, radius, spacing } from '../theme';
+import { fetchUsage, pingHealth, type Usage } from '../api';
+import { radius, spacing, type Colors } from '../theme';
+
+const fmt = (n: number) => n.toLocaleString();
+
+type Styles = ReturnType<typeof makeStyles>;
+
+function UsageRow({ styles, label, value }: { styles: Styles; label: string; value: string }) {
+  return (
+    <View style={styles.usageRow}>
+      <Text style={styles.usageLabel}>{label}</Text>
+      <Text style={styles.usageValue}>{value}</Text>
+    </View>
+  );
+}
+
+const THEME_OPTIONS: { label: string; value: ThemeMode }[] = [
+  { label: 'System', value: 'system' },
+  { label: 'Light', value: 'light' },
+  { label: 'Dark', value: 'dark' },
+];
 
 export function SettingsScreen() {
   const { settings, update, reset } = useSettings();
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+
   const [serverUrl, setServerUrl] = useState(settings.serverUrl);
   const [secret, setSecret] = useState(settings.appSharedSecret);
   const [model, setModel] = useState(settings.model);
   const [systemPrompt, setSystemPrompt] = useState(settings.systemPrompt);
   const [testing, setTesting] = useState(false);
   const [saved, setSaved] = useState(false);
+  // Connection fields are read-only until the user explicitly unlocks them.
+  const [unlocked, setUnlocked] = useState(false);
+
+  const [usage, setUsage] = useState<Usage | null>(null);
+  const [usageLoading, setUsageLoading] = useState(false);
+
+  const loadUsage = useCallback(async () => {
+    setUsageLoading(true);
+    const u = await fetchUsage({
+      serverUrl: settings.serverUrl,
+      appSharedSecret: settings.appSharedSecret,
+    });
+    setUsage(u);
+    setUsageLoading(false);
+  }, [settings.serverUrl, settings.appSharedSecret]);
+
+  useEffect(() => {
+    void loadUsage();
+  }, [loadUsage]);
 
   const save = async () => {
     await update({
@@ -34,8 +78,12 @@ export function SettingsScreen() {
       systemPrompt,
     });
     setSaved(true);
+    setUnlocked(false);
     setTimeout(() => setSaved(false), 1500);
   };
+
+  // Appearance applies immediately (no Save needed) so the change is visible at once.
+  const setThemeMode = (mode: ThemeMode) => void update({ themeMode: mode });
 
   const test = async () => {
     setTesting(true);
@@ -43,6 +91,16 @@ export function SettingsScreen() {
     setTesting(false);
     Alert.alert(ok ? 'Connected' : 'No response', ok ? 'Server is reachable.' : 'Could not reach the server.');
   };
+
+  const unlock = () =>
+    Alert.alert(
+      'Edit connection settings?',
+      'These let the app reach Claude. A wrong URL or secret will stop it working. Only change them if you know what you’re doing.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Edit', style: 'destructive', onPress: () => setUnlocked(true) },
+      ],
+    );
 
   const doReset = () =>
     Alert.alert('Reset settings?', 'Restore the built-in defaults.', [
@@ -57,6 +115,7 @@ export function SettingsScreen() {
           setSecret(d.appSharedSecret);
           setModel(d.model);
           setSystemPrompt(d.systemPrompt);
+          setUnlocked(false);
         },
       },
     ]);
@@ -64,28 +123,22 @@ export function SettingsScreen() {
   return (
     <SafeAreaView style={styles.screen} edges={['left', 'right', 'bottom']}>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        <Text style={styles.label}>Server URL</Text>
-        <TextInput
-          style={styles.input}
-          value={serverUrl}
-          onChangeText={setServerUrl}
-          autoCapitalize="none"
-          autoCorrect={false}
-          placeholder="https://…"
-          placeholderTextColor={colors.textMuted}
-        />
-
-        <Text style={styles.label}>Shared secret</Text>
-        <TextInput
-          style={styles.input}
-          value={secret}
-          onChangeText={setSecret}
-          autoCapitalize="none"
-          autoCorrect={false}
-          secureTextEntry
-          placeholder="x-app-secret"
-          placeholderTextColor={colors.textMuted}
-        />
+        <Text style={styles.label}>Appearance</Text>
+        <View style={styles.models}>
+          {THEME_OPTIONS.map((t) => (
+            <Pressable
+              key={t.value}
+              style={[styles.modelChip, settings.themeMode === t.value && styles.modelChipActive]}
+              onPress={() => setThemeMode(t.value)}
+            >
+              <Text
+                style={[styles.modelText, settings.themeMode === t.value && styles.modelTextActive]}
+              >
+                {t.label}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
 
         <Text style={styles.label}>Model</Text>
         <View style={styles.models}>
@@ -102,19 +155,94 @@ export function SettingsScreen() {
           ))}
         </View>
 
-        <Text style={styles.label}>System prompt (optional)</Text>
+        <Text style={styles.label}>Custom instructions (optional)</Text>
+        <Text style={styles.caption}>
+          Standing instructions Claude follows in every chat — e.g. “Be concise”, “Explain like
+          I’m new to coding”, or “Reply in British English”. Leave blank to use Claude’s normal
+          behaviour. (This sets the system prompt; it won’t break anything.)
+        </Text>
         <TextInput
           style={[styles.input, styles.multiline]}
           value={systemPrompt}
           onChangeText={setSystemPrompt}
           multiline
-          placeholder="Leave blank to use the server default."
+          placeholder="e.g. Keep answers short and to the point."
           placeholderTextColor={colors.textMuted}
         />
 
         <Pressable style={styles.primary} onPress={save}>
           <Text style={styles.primaryText}>{saved ? 'Saved ✓' : 'Save'}</Text>
         </Pressable>
+
+        {/* Usage — token/cost estimates reported by the server. */}
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Usage</Text>
+          <Pressable onPress={loadUsage} hitSlop={8} disabled={usageLoading}>
+            <Text style={styles.editLink}>{usageLoading ? 'Refreshing…' : 'Refresh'}</Text>
+          </Pressable>
+        </View>
+        {usage ? (
+          <View style={styles.usageCard}>
+            <UsageRow styles={styles} label="Replies" value={fmt(usage.requests)} />
+            <UsageRow styles={styles} label="Input tokens" value={fmt(usage.inputTokens)} />
+            <UsageRow styles={styles} label="Output tokens" value={fmt(usage.outputTokens)} />
+            {usage.cacheReadTokens > 0 ? (
+              <UsageRow styles={styles} label="Cache-read tokens" value={fmt(usage.cacheReadTokens)} />
+            ) : null}
+            <UsageRow
+              styles={styles}
+              label="Est. cost"
+              value={`$${usage.estimatedCostUsd.toFixed(2)}`}
+            />
+            <Text style={styles.caption}>
+              Since {new Date(usage.since).toLocaleDateString()}. Estimates only — on the Claude
+              subscription this draws on your plan, not paid API credits. Totals may reset if the
+              server restarts.
+            </Text>
+          </View>
+        ) : (
+          <Text style={styles.caption}>
+            {usageLoading ? 'Loading usage…' : 'Usage unavailable (server unreachable).'}
+          </Text>
+        )}
+
+        {/* Connection section — locked by default. */}
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Connection</Text>
+          {unlocked ? (
+            <Text style={styles.unlockHint}>Editing</Text>
+          ) : (
+            <Pressable onPress={unlock} hitSlop={8}>
+              <Text style={styles.editLink}>🔒 Edit</Text>
+            </Pressable>
+          )}
+        </View>
+
+        <Text style={styles.label}>Server URL</Text>
+        <TextInput
+          style={[styles.input, !unlocked && styles.inputLocked]}
+          value={serverUrl}
+          onChangeText={setServerUrl}
+          autoCapitalize="none"
+          autoCorrect={false}
+          editable={unlocked}
+          placeholder="https://…"
+          placeholderTextColor={colors.textMuted}
+        />
+
+        <Text style={styles.label}>Shared secret</Text>
+        <TextInput
+          style={[styles.input, !unlocked && styles.inputLocked]}
+          value={secret}
+          onChangeText={setSecret}
+          autoCapitalize="none"
+          autoCorrect={false}
+          editable={unlocked}
+          secureTextEntry
+          placeholder="x-app-secret"
+          placeholderTextColor={colors.textMuted}
+        />
+
         <Pressable style={styles.secondary} onPress={test} disabled={testing}>
           <Text style={styles.secondaryText}>{testing ? 'Testing…' : 'Test connection'}</Text>
         </Pressable>
@@ -126,46 +254,72 @@ export function SettingsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.bg },
-  content: { padding: spacing.lg, gap: spacing.sm },
-  label: { color: colors.textMuted, fontSize: 13, marginTop: spacing.md, fontWeight: '600' },
-  input: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.card,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.md,
-    color: colors.textStrong,
-    fontSize: 15,
-  },
-  multiline: { minHeight: 90, textAlignVertical: 'top' },
-  models: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  modelChip: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.pill,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    borderWidth: 1,
-    borderColor: 'transparent',
-  },
-  modelChipActive: { borderColor: colors.accent },
-  modelText: { color: colors.text, fontSize: 14 },
-  modelTextActive: { color: colors.accent, fontWeight: '600' },
-  primary: {
-    backgroundColor: colors.accent,
-    borderRadius: radius.pill,
-    paddingVertical: spacing.md,
-    alignItems: 'center',
-    marginTop: spacing.lg,
-  },
-  primaryText: { color: colors.textOnAccent, fontSize: 16, fontWeight: '700' },
-  secondary: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.pill,
-    paddingVertical: spacing.md,
-    alignItems: 'center',
-  },
-  secondaryText: { color: colors.text, fontSize: 15, fontWeight: '600' },
-  reset: { paddingVertical: spacing.md, alignItems: 'center' },
-  resetText: { color: colors.textMuted, fontSize: 14 },
-});
+const makeStyles = (c: Colors) =>
+  StyleSheet.create({
+    screen: { flex: 1, backgroundColor: c.bg },
+    content: { padding: spacing.lg, gap: spacing.sm },
+    label: { color: c.textMuted, fontSize: 13, marginTop: spacing.md, fontWeight: '600' },
+    input: {
+      backgroundColor: c.surface,
+      borderRadius: radius.card,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.md,
+      color: c.textStrong,
+      fontSize: 15,
+    },
+    inputLocked: { color: c.textMuted, opacity: 0.7 },
+    caption: { color: c.textMuted, fontSize: 12, lineHeight: 17 },
+    multiline: { minHeight: 90, textAlignVertical: 'top' },
+    models: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+    modelChip: {
+      backgroundColor: c.surface,
+      borderRadius: radius.pill,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.sm,
+      borderWidth: 1,
+      borderColor: 'transparent',
+    },
+    modelChipActive: { borderColor: c.accent },
+    modelText: { color: c.text, fontSize: 14 },
+    modelTextActive: { color: c.accent, fontWeight: '600' },
+    sectionHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginTop: spacing.lg + spacing.sm,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: c.border,
+      paddingTop: spacing.lg,
+    },
+    sectionTitle: { color: c.textStrong, fontSize: 16, fontWeight: '700' },
+    editLink: { color: c.accent, fontSize: 14, fontWeight: '600' },
+    unlockHint: { color: c.textMuted, fontSize: 13, fontStyle: 'italic' },
+    usageCard: {
+      backgroundColor: c.surface,
+      borderRadius: radius.card,
+      padding: spacing.md,
+      marginTop: spacing.sm,
+      gap: spacing.xs,
+    },
+    usageRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+    usageLabel: { color: c.textMuted, fontSize: 14 },
+    usageValue: { color: c.textStrong, fontSize: 14, fontWeight: '600' },
+    primary: {
+      backgroundColor: c.accent,
+      borderRadius: radius.pill,
+      paddingVertical: spacing.md,
+      alignItems: 'center',
+      marginTop: spacing.lg,
+    },
+    primaryText: { color: c.textOnAccent, fontSize: 16, fontWeight: '700' },
+    secondary: {
+      backgroundColor: c.surface,
+      borderRadius: radius.pill,
+      paddingVertical: spacing.md,
+      alignItems: 'center',
+      marginTop: spacing.sm,
+    },
+    secondaryText: { color: c.text, fontSize: 15, fontWeight: '600' },
+    reset: { paddingVertical: spacing.md, alignItems: 'center' },
+    resetText: { color: c.textMuted, fontSize: 14 },
+  });

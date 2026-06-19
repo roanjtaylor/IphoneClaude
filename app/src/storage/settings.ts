@@ -9,11 +9,15 @@ import {
   DEFAULT_SYSTEM_PROMPT,
 } from '../config';
 
+/** How the app picks its light/dark appearance. 'system' follows the OS setting. */
+export type ThemeMode = 'system' | 'light' | 'dark';
+
 export type Settings = {
   serverUrl: string;
   appSharedSecret: string;
   model: string;
   systemPrompt: string;
+  themeMode: ThemeMode;
 };
 
 const KEY = 'claude7.settings.v1';
@@ -24,6 +28,7 @@ export function defaultSettings(): Settings {
     appSharedSecret: DEFAULT_APP_SHARED_SECRET,
     model: DEFAULT_MODEL,
     systemPrompt: DEFAULT_SYSTEM_PROMPT,
+    themeMode: 'system',
   };
 }
 

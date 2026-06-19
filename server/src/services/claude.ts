@@ -10,6 +10,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { CLAUDE_MODEL } from '../config.ts';
+import { recordResult } from './usage.ts';
 
 // The Agent SDK doesn't call an HTTP API directly — it spawns a full Claude Code CLI
 // subprocess. By default that CLI does non-essential network work on startup
@@ -126,6 +127,18 @@ function buildHistoryPreamble(messages: ChatMessage[]): string {
   return `Conversation so far:\n${history}\n\nUser: `;
 }
 
+// Media types Claude's vision can actually read. Anything else (e.g. HEIC from an iPhone
+// library) must be converted client-side before it gets here; if one slips through we
+// normalize the obvious aliases and otherwise let the API reject it loudly.
+const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
+
+function normalizeMediaType(mediaType: string): string {
+  const t = (mediaType || '').toLowerCase().trim();
+  if (t === 'image/jpg' || t === 'image/jfif') return 'image/jpeg';
+  if (t === 'image/heic' || t === 'image/heif') return 'image/jpeg'; // best-effort label
+  return t;
+}
+
 /** Build the Anthropic content-block array for the current user turn. */
 function buildUserContent(messages: ChatMessage[]): string | unknown[] {
   const last = messages[messages.length - 1];
@@ -134,17 +147,29 @@ function buildUserContent(messages: ChatMessage[]): string | unknown[] {
   const atts = last.attachments ?? [];
   if (atts.length === 0) return text;
 
+  if (atts.length > 0) {
+    console.log(
+      `[chat] ${atts.length} attachment(s):`,
+      atts.map((a) => `${a.type}/${a.mediaType}(${Math.round((a.data?.length ?? 0) / 1366)}KB)`).join(', '),
+    );
+  }
+
   const blocks: unknown[] = [{ type: 'text', text }];
   for (const a of atts) {
+    const media_type = normalizeMediaType(a.mediaType);
     if (a.type === 'image') {
+      if (!IMAGE_TYPES.has(media_type)) {
+        console.warn(`[chat] dropping image with unsupported media type "${a.mediaType}"`);
+        continue;
+      }
       blocks.push({
         type: 'image',
-        source: { type: 'base64', media_type: a.mediaType, data: a.data },
+        source: { type: 'base64', media_type, data: a.data },
       });
     } else {
       blocks.push({
         type: 'document',
-        source: { type: 'base64', media_type: a.mediaType, data: a.data },
+        source: { type: 'base64', media_type: media_type || 'application/pdf', data: a.data },
       });
     }
   }
@@ -290,6 +315,8 @@ export async function streamChat(
         if (subtype && subtype !== 'success') {
           throw new Error(`Claude returned: ${subtype}`);
         }
+        // Accumulate token/cost usage for the Settings "usage" view.
+        recordResult(message);
       }
     }
   };
