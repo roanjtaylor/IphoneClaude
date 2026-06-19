@@ -1,3 +1,17 @@
+---
+title: iPhone Claude Server
+emoji: 🤖
+colorFrom: indigo
+colorTo: gray
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
+<!-- The YAML block above is required by Hugging Face Spaces (see DEPLOY-HUGGINGFACE.md)
+     and MUST be the very first lines of the file. It's harmless when this folder is run
+     as a normal local server. -->
+
 # iPhone-Claude server
 
 An always-on Node/Express service that turns HTTP chat requests into **subscription-billed**

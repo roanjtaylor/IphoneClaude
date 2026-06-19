@@ -40,10 +40,11 @@ Each request spawns a CLI subprocess and streams for many seconds. That rules ou
 short-lived serverless functions (execution caps + restricted subprocess spawning, e.g.
 Vercel). Use a **persistent Node host**:
 
-- **Recommended: Railway or Fly.io** — cheap, always-on, run a long-lived Node process,
-  allow subprocess spawning, give you a stable HTTPS URL, easy env-var management.
-- **Alternatives:** a small VPS (Hetzner / DigitalOcean) running the process under
-  `pm2`/systemd; Render (persistent service).
+- **Chosen: Hugging Face Spaces (Docker SDK)** — free, **no credit card**, 2 vCPU /
+  **16 GB RAM** (vital headroom for the spawned Claude CLI), Secrets store for the token,
+  sleeps when idle ("just stops", zero cost). Setup: `server/DEPLOY-HUGGINGFACE.md`.
+- **Alternatives:** Render free (no card, but 512 MB RAM → OOM risk, 15-min cold starts);
+  Railway / Fly.io (more polished but require a card); a small VPS under `pm2`/systemd.
 
 The host must be able to run the bundled `claude` CLI (Node + standard Linux userland is
 fine; the SDK ships the binary).
