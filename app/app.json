@@ -1,0 +1,36 @@
+{
+  "expo": {
+    "name": "Claude7",
+    "slug": "claude7",
+    "owner": "roanjtaylor",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": false,
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.roanjtaylor.claude7",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "plugins": [
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "deploymentTarget": "15.1"
+          }
+        }
+      ]
+    ],
+    "extra": {
+      "serverUrl": "https://CHANGE-ME-your-cloud-host.example.com",
+      "appSharedSecret": "CHANGE-ME-must-match-server",
+      "eas": {
+        "projectId": "REPLACE_AFTER_EAS_INIT"
+      }
+    }
+  }
+}
