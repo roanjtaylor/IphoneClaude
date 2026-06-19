@@ -79,6 +79,27 @@ Ordered by how much they close the gap for a single-user phone client.
       Settings override (System / Light / Dark). Every screen/component now reads its palette via
       `useTheme()` + a `makeStyles(colors)` factory; nav theme + status bar follow too.
 
+### Usability — done (round 3)
+- [x] **Image analysis — root-caused & verified** — the *server* path was proven correct via a
+      reproduction test (`solid-red PNG → model says "Red"`, even with web tools + system prompt +
+      partial streaming). The real bug was bad bytes from the device. Now hardened on BOTH ends:
+      client forces a real JPEG re-encode; server **sniffs the true image format from magic
+      bytes** (`sniffImageType`) and self-corrects a wrong label, and detects true HEIC to drop it
+      with a clear note instead of sending dead bytes. (Verified a mislabeled image is still seen.)
+- [x] **Real subscription usage** — replaced the token-estimate store with the authoritative
+      `GET https://api.anthropic.com/api/oauth/usage` (same data as Claude Code's `/usage`):
+      five-hour + seven-day utilization % and reset times, via `services/oauthApi.ts` →
+      `GET /api/usage`. Settings shows live progress bars.
+- [x] **Dynamic model list** — `GET /api/models` fetches the live Anthropic model list with the
+      subscription OAuth token (so new releases like **Fable** appear without an app update),
+      cached 1h, static fallback. Settings picker is now populated from it.
+- [x] **Update Fit** — a header-right button in the chat: bakes the current pinch-zoom into a
+      layout scale so the conversation re-flows to fill the (zoomed) width at the same on-screen
+      font size. Long-press resets to normal.
+- [x] **Composer no longer hides the last messages** — `keyboardVerticalOffset` now uses the real
+      `useHeaderHeight()` (was a hard-coded 96 tuned for notched phones), plus a `keyboardDidShow`
+      re-scroll-to-end. Fixes the bottom being hidden behind the input bar on the iPhone 7.
+
 ### Usability — done (round 2)
 - [x] **Images actually analysed** — root cause was `pickAttachment.prepareImage` mislabeling
       HEIC as JPEG when the resize step threw (iPhone library photos are HEIC, which Claude

@@ -17,18 +17,57 @@ import { useSettings } from '../state/SettingsContext';
 import { useTheme } from '../state/ThemeContext';
 import { defaultSettings, type ThemeMode } from '../storage/settings';
 import { MODEL_OPTIONS } from '../config';
-import { fetchUsage, pingHealth, type Usage } from '../api';
+import {
+  fetchModels,
+  fetchUsage,
+  pingHealth,
+  type ModelOption,
+  type Usage,
+  type UsageWindow,
+} from '../api';
 import { radius, spacing, type Colors } from '../theme';
 
-const fmt = (n: number) => n.toLocaleString();
+const FALLBACK_MODELS: ModelOption[] = MODEL_OPTIONS.map((m) => ({ id: m.value, label: m.label }));
 
 type Styles = ReturnType<typeof makeStyles>;
 
-function UsageRow({ styles, label, value }: { styles: Styles; label: string; value: string }) {
+/** Format a reset timestamp as a short, friendly "resets …" string. */
+function resetLabel(resetsAt: string | null): string {
+  if (!resetsAt) return '';
+  const d = new Date(resetsAt);
+  if (Number.isNaN(d.getTime())) return '';
+  const now = Date.now();
+  const diffH = (d.getTime() - now) / 3_600_000;
+  if (diffH <= 0) return 'resetting…';
+  if (diffH < 24) {
+    return `resets ${d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
+  }
+  return `resets ${d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}`;
+}
+
+function UsageBar({
+  styles,
+  colors,
+  label,
+  window,
+}: {
+  styles: Styles;
+  colors: Colors;
+  label: string;
+  window: UsageWindow;
+}) {
+  const pct = Math.max(0, Math.min(100, Math.round(window.utilization)));
+  const bar = pct >= 90 ? colors.errorText : colors.accent;
   return (
-    <View style={styles.usageRow}>
-      <Text style={styles.usageLabel}>{label}</Text>
-      <Text style={styles.usageValue}>{value}</Text>
+    <View style={styles.usageBlock}>
+      <View style={styles.usageRow}>
+        <Text style={styles.usageLabel}>{label}</Text>
+        <Text style={styles.usageValue}>{pct}%</Text>
+      </View>
+      <View style={styles.track}>
+        <View style={[styles.fill, { width: `${pct}%`, backgroundColor: bar }]} />
+      </View>
+      {window.resetsAt ? <Text style={styles.caption}>{resetLabel(window.resetsAt)}</Text> : null}
     </View>
   );
 }
@@ -55,6 +94,7 @@ export function SettingsScreen() {
 
   const [usage, setUsage] = useState<Usage | null>(null);
   const [usageLoading, setUsageLoading] = useState(false);
+  const [models, setModels] = useState<ModelOption[]>(FALLBACK_MODELS);
 
   const loadUsage = useCallback(async () => {
     setUsageLoading(true);
@@ -69,6 +109,24 @@ export function SettingsScreen() {
   useEffect(() => {
     void loadUsage();
   }, [loadUsage]);
+
+  // Pull the live model list so new releases (e.g. Fable) appear without an app update.
+  useEffect(() => {
+    let alive = true;
+    fetchModels({ serverUrl: settings.serverUrl, appSharedSecret: settings.appSharedSecret }).then(
+      (list) => {
+        if (!alive || !list) return;
+        // Keep the current selection visible even if the live list somehow omits it.
+        const merged = list.some((m) => m.id === model)
+          ? list
+          : [...list, { id: model, label: model }];
+        setModels(merged);
+      },
+    );
+    return () => {
+      alive = false;
+    };
+  }, [settings.serverUrl, settings.appSharedSecret, model]);
 
   const save = async () => {
     await update({
@@ -142,13 +200,13 @@ export function SettingsScreen() {
 
         <Text style={styles.label}>Model</Text>
         <View style={styles.models}>
-          {MODEL_OPTIONS.map((m) => (
+          {models.map((m) => (
             <Pressable
-              key={m.value}
-              style={[styles.modelChip, model === m.value && styles.modelChipActive]}
-              onPress={() => setModel(m.value)}
+              key={m.id}
+              style={[styles.modelChip, model === m.id && styles.modelChipActive]}
+              onPress={() => setModel(m.id)}
             >
-              <Text style={[styles.modelText, model === m.value && styles.modelTextActive]}>
+              <Text style={[styles.modelText, model === m.id && styles.modelTextActive]}>
                 {m.label}
               </Text>
             </Pressable>
@@ -181,28 +239,24 @@ export function SettingsScreen() {
             <Text style={styles.editLink}>{usageLoading ? 'Refreshing…' : 'Refresh'}</Text>
           </Pressable>
         </View>
-        {usage ? (
+        {usage && (usage.fiveHour || usage.sevenDay) ? (
           <View style={styles.usageCard}>
-            <UsageRow styles={styles} label="Replies" value={fmt(usage.requests)} />
-            <UsageRow styles={styles} label="Input tokens" value={fmt(usage.inputTokens)} />
-            <UsageRow styles={styles} label="Output tokens" value={fmt(usage.outputTokens)} />
-            {usage.cacheReadTokens > 0 ? (
-              <UsageRow styles={styles} label="Cache-read tokens" value={fmt(usage.cacheReadTokens)} />
+            {usage.fiveHour ? (
+              <UsageBar styles={styles} colors={colors} label="Current session (5h)" window={usage.fiveHour} />
             ) : null}
-            <UsageRow
-              styles={styles}
-              label="Est. cost"
-              value={`$${usage.estimatedCostUsd.toFixed(2)}`}
-            />
+            {usage.sevenDay ? (
+              <UsageBar styles={styles} colors={colors} label="This week" window={usage.sevenDay} />
+            ) : null}
+            {usage.sevenDaySonnet ? (
+              <UsageBar styles={styles} colors={colors} label="Sonnet (weekly)" window={usage.sevenDaySonnet} />
+            ) : null}
             <Text style={styles.caption}>
-              Since {new Date(usage.since).toLocaleDateString()}. Estimates only — on the Claude
-              subscription this draws on your plan, not paid API credits. Totals may reset if the
-              server restarts.
+              Percentage of your Claude plan used. This is the same data as the “/usage” command.
             </Text>
           </View>
         ) : (
           <Text style={styles.caption}>
-            {usageLoading ? 'Loading usage…' : 'Usage unavailable (server unreachable).'}
+            {usageLoading ? 'Loading usage…' : 'Usage unavailable — check the connection/secret.'}
           </Text>
         )}
 
@@ -299,11 +353,14 @@ const makeStyles = (c: Colors) =>
       borderRadius: radius.card,
       padding: spacing.md,
       marginTop: spacing.sm,
-      gap: spacing.xs,
+      gap: spacing.md,
     },
+    usageBlock: { gap: spacing.xs },
     usageRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-    usageLabel: { color: c.textMuted, fontSize: 14 },
-    usageValue: { color: c.textStrong, fontSize: 14, fontWeight: '600' },
+    usageLabel: { color: c.text, fontSize: 14, fontWeight: '600' },
+    usageValue: { color: c.textStrong, fontSize: 14, fontWeight: '700' },
+    track: { height: 8, borderRadius: 4, backgroundColor: c.surfaceAlt, overflow: 'hidden' },
+    fill: { height: '100%', borderRadius: 4 },
     primary: {
       backgroundColor: c.accent,
       borderRadius: radius.pill,

@@ -1,0 +1,94 @@
+// Talks to a couple of Anthropic OAuth-authenticated endpoints using the SAME subscription
+// credentials the Agent SDK uses — so the app can (a) list the models the account can
+// actually use (incl. brand-new ones, without a code change), and (b) show real plan usage
+// (the same numbers the Claude Code `/usage` command shows). The token comes from
+// CLAUDE_CODE_OAUTH_TOKEN (set on the cloud host) or the local `claude login` credentials.
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
+const OAUTH_HEADERS_BETA = 'oauth-2025-04-20';
+
+function readToken(): string | null {
+  if (process.env.CLAUDE_CODE_OAUTH_TOKEN) return process.env.CLAUDE_CODE_OAUTH_TOKEN.trim();
+  if (process.env.ANTHROPIC_OAUTH_TOKEN) return process.env.ANTHROPIC_OAUTH_TOKEN.trim();
+  try {
+    const p = path.join(os.homedir(), '.claude', '.credentials.json');
+    const creds = JSON.parse(fs.readFileSync(p, 'utf8'));
+    return creds?.claudeAiOauth?.accessToken ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function oauthGet(pathname: string): Promise<any> {
+  const token = readToken();
+  if (!token) throw new Error('No Claude OAuth token available on the server.');
+  const res = await fetch(`https://api.anthropic.com${pathname}`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'anthropic-version': '2023-06-01',
+      'anthropic-beta': OAUTH_HEADERS_BETA,
+    },
+  });
+  if (!res.ok) throw new Error(`Anthropic ${pathname} → ${res.status}`);
+  return res.json();
+}
+
+// ---- Models -----------------------------------------------------------------
+
+export type ModelOption = { id: string; label: string };
+
+// Curated fallback if the live list can't be fetched (offline / token issue).
+const FALLBACK_MODELS: ModelOption[] = [
+  { id: 'claude-opus-4-8', label: 'Claude Opus 4.8' },
+  { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
+  { id: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5' },
+];
+
+let modelsCache: { at: number; models: ModelOption[] } | null = null;
+const MODELS_TTL_MS = 60 * 60 * 1000; // 1h — the list rarely changes.
+
+export async function listModels(now: number): Promise<ModelOption[]> {
+  if (modelsCache && now - modelsCache.at < MODELS_TTL_MS) return modelsCache.models;
+  try {
+    const body = await oauthGet('/v1/models?limit=100');
+    const models: ModelOption[] = (body?.data ?? [])
+      .filter((m: any) => typeof m?.id === 'string')
+      .map((m: any) => ({ id: m.id, label: m.display_name || m.id }));
+    if (models.length > 0) {
+      modelsCache = { at: now, models };
+      return models;
+    }
+  } catch (err: any) {
+    console.warn('[models] live fetch failed, using fallback:', err?.message ?? err);
+  }
+  return FALLBACK_MODELS;
+}
+
+// ---- Usage (real subscription quota) ----------------------------------------
+
+export type UsageWindow = { utilization: number; resetsAt: string | null };
+export type SubscriptionUsage = {
+  fiveHour: UsageWindow | null;
+  sevenDay: UsageWindow | null;
+  sevenDayOpus: UsageWindow | null;
+  sevenDaySonnet: UsageWindow | null;
+  fetchedAt: number;
+};
+
+function win(raw: any): UsageWindow | null {
+  if (!raw || typeof raw.utilization !== 'number') return null;
+  return { utilization: raw.utilization, resetsAt: raw.resets_at ?? null };
+}
+
+export async function getSubscriptionUsage(now: number): Promise<SubscriptionUsage> {
+  const body = await oauthGet('/api/oauth/usage');
+  return {
+    fiveHour: win(body?.five_hour),
+    sevenDay: win(body?.seven_day),
+    sevenDayOpus: win(body?.seven_day_opus),
+    sevenDaySonnet: win(body?.seven_day_sonnet),
+    fetchedAt: now,
+  };
+}

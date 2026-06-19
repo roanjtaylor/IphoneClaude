@@ -147,18 +147,19 @@ export async function fetchTitle(
   }
 }
 
-/** Cumulative Claude usage totals reported by the server (estimates). */
+/** A usage window (% of the plan limit used) + when it resets. */
+export type UsageWindow = { utilization: number; resetsAt: string | null };
+
+/** Real subscription usage — the numbers Claude Code's `/usage` shows. */
 export type Usage = {
-  since: number;
-  requests: number;
-  inputTokens: number;
-  outputTokens: number;
-  cacheReadTokens: number;
-  cacheCreationTokens: number;
-  estimatedCostUsd: number;
+  fiveHour: UsageWindow | null;
+  sevenDay: UsageWindow | null;
+  sevenDayOpus: UsageWindow | null;
+  sevenDaySonnet: UsageWindow | null;
+  fetchedAt: number;
 };
 
-/** Fetch cumulative usage totals from the server. Returns null if unreachable. */
+/** Fetch real subscription usage from the server. Returns null if unavailable. */
 export async function fetchUsage(config: Pick<ApiConfig, 'serverUrl' | 'appSharedSecret'>): Promise<Usage | null> {
   try {
     const res = await fetch(`${config.serverUrl}/api/usage`, {
@@ -167,6 +168,24 @@ export async function fetchUsage(config: Pick<ApiConfig, 'serverUrl' | 'appShare
     });
     if (!res.ok) return null;
     return (await res.json()) as Usage;
+  } catch {
+    return null;
+  }
+}
+
+/** A model the account can use, from the live Anthropic model list. */
+export type ModelOption = { id: string; label: string };
+
+/** Fetch the available models from the server. Returns null if unreachable. */
+export async function fetchModels(config: Pick<ApiConfig, 'serverUrl' | 'appSharedSecret'>): Promise<ModelOption[] | null> {
+  try {
+    const res = await fetch(`${config.serverUrl}/api/models`, {
+      method: 'GET',
+      headers: { 'x-app-secret': config.appSharedSecret },
+    });
+    if (!res.ok) return null;
+    const body = (await res.json()) as { models?: ModelOption[] };
+    return Array.isArray(body.models) && body.models.length > 0 ? body.models : null;
   } catch {
     return null;
   }

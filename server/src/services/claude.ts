@@ -10,7 +10,6 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { CLAUDE_MODEL } from '../config.ts';
-import { recordResult } from './usage.ts';
 
 // The Agent SDK doesn't call an HTTP API directly — it spawns a full Claude Code CLI
 // subprocess. By default that CLI does non-essential network work on startup
@@ -127,16 +126,39 @@ function buildHistoryPreamble(messages: ChatMessage[]): string {
   return `Conversation so far:\n${history}\n\nUser: `;
 }
 
-// Media types Claude's vision can actually read. Anything else (e.g. HEIC from an iPhone
-// library) must be converted client-side before it gets here; if one slips through we
-// normalize the obvious aliases and otherwise let the API reject it loudly.
+// Media types Claude's vision can actually read.
 const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
 
-function normalizeMediaType(mediaType: string): string {
-  const t = (mediaType || '').toLowerCase().trim();
-  if (t === 'image/jpg' || t === 'image/jfif') return 'image/jpeg';
-  if (t === 'image/heic' || t === 'image/heif') return 'image/jpeg'; // best-effort label
-  return t;
+/**
+ * Sniff the ACTUAL image format from the first bytes of the base64 payload, ignoring the
+ * client-declared media type. This is the crux of the "Claude can't see my photo" bug: an
+ * iPhone-library photo is often HEIC, and if it reaches us mislabeled as image/jpeg the
+ * model silently can't read it. By detecting the true format we (a) fix wrong labels, and
+ * (b) recognize HEIC so we can drop it with a clear log instead of sending dead bytes.
+ * Returns the correct media type, 'heic' if it's unreadable HEIF/HEIC, or null if unknown.
+ */
+function sniffImageType(base64: string): string | null {
+  let head: Buffer;
+  try {
+    head = Buffer.from(base64.slice(0, 64), 'base64');
+  } catch {
+    return null;
+  }
+  if (head.length < 12) return null;
+  if (head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff) return 'image/jpeg';
+  if (head[0] === 0x89 && head[1] === 0x50 && head[2] === 0x4e && head[3] === 0x47) return 'image/png';
+  if (head[0] === 0x47 && head[1] === 0x49 && head[2] === 0x46) return 'image/gif';
+  if (
+    head[0] === 0x52 && head[1] === 0x49 && head[2] === 0x46 && head[3] === 0x46 &&
+    head[8] === 0x57 && head[9] === 0x45 && head[10] === 0x42 && head[11] === 0x50
+  )
+    return 'image/webp';
+  // ISO-BMFF 'ftyp' box (bytes 4-7) → HEIC/HEIF family (brands heic/heix/hevc/mif1/msf1).
+  if (head[4] === 0x66 && head[5] === 0x74 && head[6] === 0x79 && head[7] === 0x70) {
+    const brand = head.toString('ascii', 8, 12);
+    if (/heic|heix|hevc|heif|mif1|msf1/i.test(brand)) return 'heic';
+  }
+  return null;
 }
 
 /** Build the Anthropic content-block array for the current user turn. */
@@ -156,20 +178,27 @@ function buildUserContent(messages: ChatMessage[]): string | unknown[] {
 
   const blocks: unknown[] = [{ type: 'text', text }];
   for (const a of atts) {
-    const media_type = normalizeMediaType(a.mediaType);
     if (a.type === 'image') {
-      if (!IMAGE_TYPES.has(media_type)) {
-        console.warn(`[chat] dropping image with unsupported media type "${a.mediaType}"`);
+      // Trust the bytes, not the label.
+      const sniffed = sniffImageType(a.data);
+      if (sniffed === 'heic') {
+        console.warn('[chat] dropping HEIC image — convert to JPEG/PNG before sending.');
+        blocks[0] = {
+          type: 'text',
+          text: `${text}\n\n(Note: an attached image could not be read because it was in HEIC format and was not converted to JPEG.)`,
+        };
         continue;
       }
+      const media_type = sniffed ?? (IMAGE_TYPES.has(a.mediaType?.toLowerCase()) ? a.mediaType.toLowerCase() : 'image/jpeg');
       blocks.push({
         type: 'image',
         source: { type: 'base64', media_type, data: a.data },
       });
     } else {
+      const media_type = (a.mediaType || 'application/pdf').toLowerCase();
       blocks.push({
         type: 'document',
-        source: { type: 'base64', media_type: media_type || 'application/pdf', data: a.data },
+        source: { type: 'base64', media_type, data: a.data },
       });
     }
   }
@@ -315,8 +344,6 @@ export async function streamChat(
         if (subtype && subtype !== 'success') {
           throw new Error(`Claude returned: ${subtype}`);
         }
-        // Accumulate token/cost usage for the Settings "usage" view.
-        recordResult(message);
       }
     }
   };
