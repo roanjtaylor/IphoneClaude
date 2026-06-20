@@ -15,10 +15,14 @@ generalised from the sibling `a_TasteTrainer` server (one-shot → multi-turn ch
 - **Model:** `claude-opus-4-8` default (`server/src/config.ts`, override via `CLAUDE_MODEL`),
   but the client may pass a per-request `model` and `systemPrompt` (from the app's Settings).
 - **Tools:** `allowedTools: ['WebSearch', 'WebFetch']` — enough to mirror the real app's
-  live answers, nothing that touches the host filesystem or shell. `maxTurns: 12` allows a
-  search → read → answer round-trip. A 180 s timeout + `AbortController` prevents stuck
-  subprocesses; the route also **aborts the subprocess when the client disconnects** (stop
-  button / dropped connection) via `res` `'close'`.
+  live answers, nothing that touches the host filesystem or shell. `maxTurns: 20` allows
+  several search → read round-trips before answering (12 was tight enough that web-heavy
+  questions hit the cap). On a terminal `error_max_turns` the server **keeps any answer already
+  streamed** rather than erroring it away, and an API error carried in a "success" result (e.g.
+  an unreadable/too-small image → "Could not process image") is surfaced verbatim instead of a
+  generic process-exit crash. A 180 s timeout + `AbortController` prevents stuck subprocesses;
+  the route also **aborts the subprocess when the client disconnects** (stop button / dropped
+  connection) via `res` `'close'`.
 - **Web-tool visibility:** the stream loop watches for `tool_use` blocks and tool results and
   emits `tool` / `sources` SSE events so the app can show a "Searching the web…" state and
   tappable source links. `DEFAULT_SYSTEM_PROMPT` also asks the model to add inline `[n]`

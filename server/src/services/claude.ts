@@ -85,6 +85,13 @@ export const DEFAULT_SYSTEM_PROMPT = [
   'cite them — these numbers line up with the Sources list shown to the user. Only cite',
   'sources you actually used; never invent citation numbers, and skip citations entirely',
   'when you did not search.',
+  'The app renders inline images, so when a picture would genuinely help and you have a',
+  'reliable DIRECT image-file URL (ending in .jpg/.jpeg/.png/.webp/.gif — e.g. a Wikimedia',
+  'Commons "upload.wikimedia.org" file, or an image URL you obtained by fetching a page),',
+  'embed it with Markdown image syntax ![short description](https URL). Prefer one or two',
+  'high-quality images over many. Never invent or guess image URLs and never link a web page',
+  'as if it were an image; if you are not confident a direct image URL resolves, give a link',
+  'instead of a broken image.',
 ].join(' ');
 
 /** A base64-encoded attachment travelling with a user turn. */
@@ -343,6 +350,9 @@ export async function streamChat(
   }
 
   const seenSources = new Map<string, { url: string; title?: string }>();
+  // Track whether the model produced any visible answer text, so a terminal "ran out of
+  // steps" result keeps the partial answer instead of erroring it away.
+  let gotText = false;
 
   const consume = async (): Promise<void> => {
     for await (const message of query({
@@ -353,8 +363,9 @@ export async function streamChat(
         // Allow only web tools — enough to mirror the real app, nothing that touches
         // the host filesystem or shell.
         allowedTools: ['WebSearch', 'WebFetch'],
-        // Permit enough turns for a tool round-trip (search -> read -> answer).
-        maxTurns: 12,
+        // Permit several tool round-trips (search -> read -> search -> answer). 12 was tight
+        // enough that web-heavy questions hit the cap and errored; 20 gives real headroom.
+        maxTurns: 20,
         // Stream partial output so the UI fills in live instead of waiting.
         includePartialMessages: true,
         cwd,
@@ -365,6 +376,7 @@ export async function streamChat(
         const ev = (message as any).event;
         // The model's visible answer arrives as text_delta events; forward each one.
         if (ev?.type === 'content_block_delta' && ev.delta?.type === 'text_delta') {
+          gotText = true;
           callbacks.onDelta(ev.delta.text as string);
         } else if (ev?.type === 'content_block_start') {
           const block = ev.content_block;
@@ -397,9 +409,24 @@ export async function streamChat(
           }
         }
       } else if (message.type === 'result') {
-        // The terminal message. On anything but success, surface it as an error.
+        // The terminal message. Decide whether it's a real failure worth surfacing.
         const subtype = (message as any).subtype;
-        if (subtype && subtype !== 'success') {
+        const isError = (message as any).is_error === true;
+        const resultText = String((message as any).result ?? '').trim();
+        if (subtype === 'success') {
+          // A "success" envelope can still carry an API error (e.g. an unreadable/too-small
+          // image returns `is_error` with the API message in `result`). Surface that text so
+          // the user sees the real reason instead of a generic process crash.
+          if (isError && resultText) throw new Error(resultText);
+        } else if (subtype === 'error_max_turns') {
+          // Hit the step cap (usually repeated web searches). Keep any answer already streamed;
+          // only error when nothing was produced at all.
+          if (!gotText) {
+            throw new Error(
+              'Claude took too many steps (e.g. repeated web searches) before answering. Please retry or simplify the request.',
+            );
+          }
+        } else if (subtype) {
           throw new Error(`Claude returned: ${subtype}`);
         }
       }

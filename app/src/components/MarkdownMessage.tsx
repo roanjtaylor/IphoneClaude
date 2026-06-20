@@ -18,7 +18,8 @@ import { SavableImage } from './SavableImage';
  * Turn bare `[n]` citation markers into tappable links (`claude-cite:n`, opened in
  * onLinkPress) when the message has sources. Code (fenced + inline) is protected so we never
  * rewrite things like `arr[1]` in a snippet, and we gate `n` to a real source index and skip
- * reference-link definitions (`[1]:`) and `[text][1]` constructs (the leading-char rule).
+ * reference-link definitions (`[1]:`), `[text][1]` constructs, and Markdown image alt text
+ * (`![1](url)`) — the leading-char rule excludes `!`, `]` and identifier chars.
  */
 function linkifyCitations(content: string, sourceCount: number): string {
   if (sourceCount <= 0) return content;
@@ -27,7 +28,7 @@ function linkifyCitations(content: string, sourceCount: number): string {
     .split(codeOrProse)
     .map((part, i) => {
       if (i % 2 === 1) return part; // captured code segment — leave untouched
-      return part.replace(/(^|[\s.,;:!?)])\[(\d{1,2})\](?!:)/g, (m, pre: string, num: string) => {
+      return part.replace(/(^|[\s.,;:?)])\[(\d{1,2})\](?!:)/g, (m, pre: string, num: string) => {
         const n = parseInt(num, 10);
         if (n < 1 || n > sourceCount) return m;
         return `${pre}[\\[${n}\\]](claude-cite:${n})`;
