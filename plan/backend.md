@@ -40,6 +40,50 @@ generalised from the sibling `a_TasteTrainer` server (one-shot → multi-turn ch
   turn's blocks is what lets the model still "see" an image from an earlier turn on a follow-up
   question — still `query()`, still subscription auth.
 
+## Image embedding — what works and what doesn't
+
+The app renders `![alt](url)` Markdown images inline. Getting images to actually appear
+requires everything in the following chain to work:
+
+### The working approach ✅
+
+Claude embeds **Wikimedia Commons `Special:FilePath` URLs** directly from its training knowledge:
+
+```
+https://commons.wikimedia.org/wiki/Special:FilePath/Ferrari_F40.jpg
+```
+
+- Claude only needs to know the **filename** (e.g. `Ferrari_F40.jpg`) — not the hash path.
+- `Special:FilePath` is a redirect endpoint: Wikimedia looks up the hash and redirects to the
+  real CDN URL (`upload.wikimedia.org/…`).
+- React Native's `<Image>` follows HTTP redirects automatically, so the image loads.
+- Claude's training data knows Wikipedia filenames accurately for famous subjects.
+- If the filename is slightly wrong, the app shows a grey placeholder — harmless.
+
+This is documented in `DEFAULT_SYSTEM_PROMPT` in `server/src/services/claude.ts`.
+
+### What doesn't work — and why ❌
+
+| Approach | Why it fails |
+|---|---|
+| Direct CDN URL: `upload.wikimedia.org/wikipedia/commons/9/9a/FILENAME.jpg` | The `9/9a` hash path is derived from an MD5 of the filename. Claude knows the filename but routinely gets the hash segment wrong → 404 → grey box. |
+| WebFetch a Wikipedia/Wikimedia page to extract image URLs | Wikimedia blocks server-side HTTP requests (returns 403). The HF Space server cannot fetch any `*.wikimedia.org` or `*.wikipedia.org` URL. |
+| WebFetch modern media sites (topgear.com, motortrend.com) to extract image URLs | These sites use JavaScript rendering. WebFetch only gets raw HTML, which for JS-heavy sites is a shell with no image tags — Claude sees no image URLs to extract. |
+| Bash/curl on the server to try alternative access | `allowedTools: ['WebSearch', 'WebFetch']` — the Claude Agent SDK will prompt for approval for any other tool, wasting a turn. Never add Bash to this list. |
+| Telling Claude "only embed URLs from pages you actually fetched" | Since all viable image-hosting sites are either blocked or JS-rendered, Claude can never satisfy this constraint and ends up embedding no images at all. |
+| Having Claude narrate its search attempts as the response | When all tool calls fail and `gotText === true` (from narration text), the server sends `done` without error. The user sees only the narration — no answer, no images. |
+
+### Client-side image rendering
+
+- `MarkdownMessage.tsx` custom `image` render rule → `MarkdownImage` component → `SavableImage` → RN `<Image>`.
+- `SavableImage` sets `backgroundColor: colors.surfaceAlt` on the `<Image>` — this is the grey
+  placeholder visible while loading or on failure.
+- **No `onError` fallback to a text link** — a failed image shows as a quiet grey box, not a
+  broken link. This is intentional: text-link fallbacks made the pre-working state look like
+  "images are showing" when they were actually failing silently as links.
+- `onLoad` fires when an image loads successfully and sets the aspect ratio for correct sizing.
+- Tap → `ImageViewerScreen` (full-screen modal, pinch-to-zoom). Long-press → save/share sheet.
+
 ## API
 
 | Method | Path | Notes |

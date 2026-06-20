@@ -34,8 +34,9 @@ A multi-screen, persisted chat app (entry: `app/App.tsx` → `src/navigation/Roo
 - **Chat** (`src/screens/ChatScreen.tsx`, `src/hooks/useChat.ts`) — live SSE token streaming;
   **Markdown** rendering with code blocks (highlight + copy, height-capped), horizontally-
   scrollable tables, links and saveable images (`src/components/MarkdownMessage.tsx`,
-  `CodeBlock.tsx`, `SavableImage.tsx`); **inline numbered citations** (`[n]` markers linkified
-  to the web sources); **attachments** (photo/camera/document, sent as multimodal content
+  `CodeBlock.tsx`, `SavableImage.tsx`) — images use `Special:FilePath` Wikimedia URLs (see
+  `backend.md` → "Image embedding" for what works vs. what doesn't); **inline numbered
+  citations** (`[n]` markers linkified to the web sources); **attachments** (photo/camera/document, sent as multimodal content
   blocks, **resent for every past turn** so earlier images stay in context, capped to a wire
   budget in `useChat.toWire`); **tap any image to view it full-screen** (zoomable modal,
   `ImageViewerScreen.tsx`); **pinch-to-zoom** + a header **••• menu** (Fit Width / Reset Fit /
