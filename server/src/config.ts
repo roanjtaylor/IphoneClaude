@@ -1,5 +1,5 @@
 // Central config. All values come from the environment so the same code runs
-// locally and on the cloud host (see plan/hosting.md).
+// locally and on the cloud host (see plan/backend.md).
 
 /** Port the HTTP server binds. Cloud hosts inject PORT; default suits local dev. */
 export const PORT = Number(process.env.PORT) || 5174;

@@ -4,14 +4,11 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
-  FlatList,
   Keyboard,
   KeyboardAvoidingView,
-  type LayoutRectangle,
-  type NativeScrollEvent,
-  type NativeSyntheticEvent,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -30,7 +27,6 @@ import { Composer } from '../components/Composer';
 import { StatusBanner } from '../components/WakingBanner';
 import { ClaudeMascot } from '../components/ClaudeMascot';
 import { spacing, type Colors } from '../theme';
-import type { Message } from '../storage/types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Chat'>;
 
@@ -41,15 +37,12 @@ export function ChatScreen({ route, navigation }: Props) {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const headerHeight = useHeaderHeight();
   const [convOverrides, setConvOverrides] = useState<{ model?: string; systemPrompt?: string }>({});
-  const listRef = useRef<FlatList<Message>>(null);
+  const listRef = useRef<ScrollView>(null);
 
-  // "Update Fit": bake the current pinch-zoom into a persistent layout scale so the
-  // conversation re-flows to fill the (zoomed) width at the same on-screen font size,
-  // instead of staying a shrunken, narrow column. `fitScale` < 1 = more content fits.
-  const [fitScale, setFitScale] = useState(1);
-  const [fitKey, setFitKey] = useState(0); // bump to remount the list (resets live zoom)
-  const [box, setBox] = useState<LayoutRectangle | null>(null);
-  const zoomRef = useRef(1);
+  // "Update Fit": a pure layout reflow. When on, the conversation drops its side margins and
+  // bubbles widen to the full screen width — same font size, just more text per line (a more
+  // compact view). It's a real layout change (not a transform), so it never blanks content.
+  const [wide, setWide] = useState(false);
 
   // Resolve config: per-chat override → global settings.
   const config: ApiConfig = {
@@ -96,19 +89,9 @@ export function ChatScreen({ route, navigation }: Props) {
     );
   }, [navigation, route.params.title, conversationId]);
 
-  // Bake the live pinch-zoom into the layout (long-press resets to normal).
-  const updateFit = useCallback(() => {
-    const z = zoomRef.current || 1;
-    setFitScale((prev) => Math.max(0.5, Math.min(1.5, Math.round(prev * z * 100) / 100)));
-    zoomRef.current = 1;
-    setFitKey((k) => k + 1);
-  }, []);
-
-  const resetFit = useCallback(() => {
-    zoomRef.current = 1;
-    setFitScale(1);
-    setFitKey((k) => k + 1);
-  }, []);
+  // Toggle the full-width reflow; long-press resets to the normal margined view.
+  const toggleFit = useCallback(() => setWide((w) => !w), []);
+  const resetFit = useCallback(() => setWide(false), []);
 
   useLayoutEffect(() => {
     const title = route.params.title ?? 'Chat';
@@ -120,16 +103,13 @@ export function ChatScreen({ route, navigation }: Props) {
           </Text>
         </Pressable>
       ),
-      headerRight:
-        Platform.OS === 'ios'
-          ? () => (
-              <Pressable onPress={updateFit} onLongPress={resetFit} hitSlop={8}>
-                <Text style={styles.headerAction}>Update Fit</Text>
-              </Pressable>
-            )
-          : undefined,
+      headerRight: () => (
+        <Pressable onPress={toggleFit} onLongPress={resetFit} hitSlop={8}>
+          <Text style={styles.headerAction}>{wide ? 'Reset Fit' : 'Fit Width'}</Text>
+        </Pressable>
+      ),
     });
-  }, [navigation, route.params.title, promptRename, updateFit, resetFit, styles]);
+  }, [navigation, route.params.title, promptRename, toggleFit, resetFit, wide, styles]);
 
   const scrollToEnd = useCallback((animated = true) => {
     requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated }));
@@ -142,11 +122,6 @@ export function ChatScreen({ route, navigation }: Props) {
     return () => sub.remove();
   }, [scrollToEnd]);
 
-  const onScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const z = e.nativeEvent.zoomScale;
-    if (typeof z === 'number' && z > 0) zoomRef.current = z;
-  }, []);
-
   const lastAssistantId = (() => {
     for (let i = messages.length - 1; i >= 0; i--) {
       if (messages[i].role === 'assistant') return messages[i].id;
@@ -154,43 +129,10 @@ export function ChatScreen({ route, navigation }: Props) {
     return null;
   })();
 
-  const list = (
-    <FlatList
-      key={fitKey}
-      ref={listRef}
-      style={styles.flex}
-      contentContainerStyle={styles.listContent}
-      // Pinch to zoom the conversation (iOS), like a web page; then "Update Fit" re-flows
-      // it to that width. Min 0.5 = half size.
-      minimumZoomScale={Platform.OS === 'ios' ? 0.5 : undefined}
-      maximumZoomScale={Platform.OS === 'ios' ? 3 : undefined}
-      bouncesZoom={Platform.OS === 'ios'}
-      onScroll={onScroll}
-      scrollEventThrottle={16}
-      data={messages}
-      keyExtractor={(m) => m.id}
-      renderItem={({ item }) => (
-        <MessageBubble
-          message={item}
-          busy={busy}
-          isLastAssistant={item.id === lastAssistantId}
-          onRegenerate={regenerate}
-        />
-      )}
-      ListEmptyComponent={
-        <View style={styles.empty}>
-          <ClaudeMascot size={88} color={colors.accent} />
-          <Text style={styles.emptyText}>Ask Claude anything.</Text>
-        </View>
-      }
-      onContentSizeChange={() => scrollToEnd()}
-    />
-  );
-
-  // When a fit-scale is active, render the list into an oversized box scaled down from the
-  // top-left so it visually fills the width but lays out (and wraps) at the wider size.
-  const scaled = Platform.OS === 'ios' && fitScale !== 1 && box;
-
+  // A plain ScrollView (not a virtualized FlatList): pinch-zoom on iOS interferes with
+  // FlatList's windowing, which left messages below the first screen blank even though you
+  // could scroll to them. A ScrollView renders every bubble, so scrolled content always shows,
+  // and its native pinch-zoom is reliable.
   return (
     <SafeAreaView style={styles.screen} edges={['left', 'right', 'bottom']}>
       <KeyboardAvoidingView
@@ -198,22 +140,35 @@ export function ChatScreen({ route, navigation }: Props) {
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         keyboardVerticalOffset={Platform.OS === 'ios' ? headerHeight : 0}
       >
-        <View style={styles.fitClip} onLayout={(e) => setBox(e.nativeEvent.layout)}>
-          {scaled ? (
-            <View
-              style={{
-                width: box!.width / fitScale,
-                height: box!.height / fitScale,
-                transform: [{ scale: fitScale }],
-                transformOrigin: 'top left',
-              }}
-            >
-              {list}
+        <ScrollView
+          ref={listRef}
+          style={styles.flex}
+          contentContainerStyle={[styles.listContent, wide && styles.listContentWide]}
+          keyboardShouldPersistTaps="handled"
+          // Pinch to zoom the conversation (iOS), like a web page. Min 0.5 = half size.
+          minimumZoomScale={Platform.OS === 'ios' ? 0.5 : undefined}
+          maximumZoomScale={Platform.OS === 'ios' ? 3 : undefined}
+          bouncesZoom={Platform.OS === 'ios'}
+          onContentSizeChange={() => scrollToEnd()}
+        >
+          {messages.length === 0 ? (
+            <View style={styles.empty}>
+              <ClaudeMascot size={88} color={colors.accent} />
+              <Text style={styles.emptyText}>Ask Claude anything.</Text>
             </View>
           ) : (
-            list
+            messages.map((item) => (
+              <MessageBubble
+                key={item.id}
+                message={item}
+                busy={busy}
+                wide={wide}
+                isLastAssistant={item.id === lastAssistantId}
+                onRegenerate={regenerate}
+              />
+            ))
           )}
-        </View>
+        </ScrollView>
 
         {waking ? <StatusBanner text="Waking Claude up…" /> : null}
         {searching ? (
@@ -237,11 +192,12 @@ export function ChatScreen({ route, navigation }: Props) {
 const makeStyles = (c: Colors) =>
   StyleSheet.create({
     flex: { flex: 1 },
-    fitClip: { flex: 1, overflow: 'hidden' },
     screen: { flex: 1, backgroundColor: c.bg },
     headerTitle: { color: c.textStrong, fontSize: 17, fontWeight: '600', maxWidth: 220 },
     headerAction: { color: c.accent, fontSize: 15, fontWeight: '600' },
     listContent: { padding: spacing.md, paddingBottom: spacing.lg, flexGrow: 1 },
+    // Full-width reflow: drop the side margins so bubbles use the whole screen width.
+    listContentWide: { paddingHorizontal: spacing.xs },
     empty: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: spacing.md },
     emptyText: { color: c.textFaint, fontSize: 15 },
     errorBar: { backgroundColor: c.errorBg, paddingHorizontal: spacing.lg, paddingVertical: spacing.sm },

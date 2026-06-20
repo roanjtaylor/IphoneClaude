@@ -95,6 +95,12 @@ export function SettingsScreen() {
   const [usage, setUsage] = useState<Usage | null>(null);
   const [usageLoading, setUsageLoading] = useState(false);
   const [models, setModels] = useState<ModelOption[]>(FALLBACK_MODELS);
+  const [modelOpen, setModelOpen] = useState(false);
+
+  const selectedModelLabel = useMemo(
+    () => models.find((m) => m.id === model)?.label ?? model,
+    [models, model],
+  );
 
   const loadUsage = useCallback(async () => {
     setUsageLoading(true);
@@ -199,19 +205,35 @@ export function SettingsScreen() {
         </View>
 
         <Text style={styles.label}>Model</Text>
-        <View style={styles.models}>
-          {models.map((m) => (
-            <Pressable
-              key={m.id}
-              style={[styles.modelChip, model === m.id && styles.modelChipActive]}
-              onPress={() => setModel(m.id)}
-            >
-              <Text style={[styles.modelText, model === m.id && styles.modelTextActive]}>
-                {m.label}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
+        <Pressable style={styles.dropdown} onPress={() => setModelOpen((o) => !o)}>
+          <Text style={styles.dropdownText} numberOfLines={1}>
+            {selectedModelLabel}
+          </Text>
+          <Text style={styles.dropdownChevron}>{modelOpen ? '▲' : '▼'}</Text>
+        </Pressable>
+        {modelOpen ? (
+          <View style={styles.dropdownList}>
+            {models.map((m) => (
+              <Pressable
+                key={m.id}
+                style={[styles.dropdownItem, model === m.id && styles.dropdownItemActive]}
+                onPress={() => {
+                  setModel(m.id);
+                  setModelOpen(false);
+                }}
+              >
+                <Text
+                  style={[styles.dropdownItemText, model === m.id && styles.dropdownItemTextActive]}
+                  numberOfLines={1}
+                >
+                  {m.label}
+                </Text>
+                {model === m.id ? <Text style={styles.dropdownCheck}>✓</Text> : null}
+              </Pressable>
+            ))}
+          </View>
+        ) : null}
+        <Text style={styles.caption}>The list updates live from your subscription’s models.</Text>
 
         <Text style={styles.label}>Custom instructions (optional)</Text>
         <Text style={styles.caption}>
@@ -336,6 +358,39 @@ const makeStyles = (c: Colors) =>
     modelChipActive: { borderColor: c.accent },
     modelText: { color: c.text, fontSize: 14 },
     modelTextActive: { color: c.accent, fontWeight: '600' },
+    dropdown: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      backgroundColor: c.surface,
+      borderRadius: radius.card,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.md,
+      borderWidth: 1,
+      borderColor: c.border,
+    },
+    dropdownText: { color: c.textStrong, fontSize: 15, flex: 1 },
+    dropdownChevron: { color: c.textMuted, fontSize: 12, marginLeft: spacing.sm },
+    dropdownList: {
+      backgroundColor: c.surface,
+      borderRadius: radius.card,
+      borderWidth: 1,
+      borderColor: c.border,
+      overflow: 'hidden',
+    },
+    dropdownItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.md,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: c.border,
+    },
+    dropdownItemActive: { backgroundColor: c.surfaceAlt },
+    dropdownItemText: { color: c.text, fontSize: 15, flex: 1 },
+    dropdownItemTextActive: { color: c.accent, fontWeight: '600' },
+    dropdownCheck: { color: c.accent, fontSize: 15, fontWeight: '700', marginLeft: spacing.sm },
     sectionHeader: {
       flexDirection: 'row',
       alignItems: 'center',

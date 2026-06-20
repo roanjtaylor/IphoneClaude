@@ -1,6 +1,6 @@
 // iPhone-Claude backend: turns HTTP chat requests into subscription-billed Claude
 // Agent SDK calls, streamed over SSE. Runs on an always-on cloud host so the phone
-// works with the laptop off (see plan/hosting.md).
+// works with the laptop off (see plan/backend.md).
 //
 // ‼️ Run with plain `tsx` (NO watch). The Agent SDK's lazy import can deadlock under
 // `tsx watch` in non-TTY stdio, and `node --watch` spuriously restarts on Windows and

@@ -8,6 +8,12 @@ import os from 'node:os';
 import path from 'node:path';
 
 const OAUTH_HEADERS_BETA = 'oauth-2025-04-20';
+// Anthropic's OAuth endpoints (usage, models) reject requests that don't present the
+// claude-code User-Agent — exactly how the Claude Code CLI calls them. WITHOUT this header
+// these GETs come back 401/403, which is why /api/usage showed "unavailable" and the model
+// picker silently fell back to its static list. The version is cosmetic; the `claude-code/`
+// prefix is what matters. (Verified against the bundled CLI's own usage call.)
+const USER_AGENT = 'claude-code/2.0.77 (external, iphone-claude)';
 
 function readToken(): string | null {
   if (process.env.CLAUDE_CODE_OAUTH_TOKEN) return process.env.CLAUDE_CODE_OAUTH_TOKEN.trim();
@@ -27,11 +33,17 @@ async function oauthGet(pathname: string): Promise<any> {
   const res = await fetch(`https://api.anthropic.com${pathname}`, {
     headers: {
       Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+      'User-Agent': USER_AGENT,
       'anthropic-version': '2023-06-01',
       'anthropic-beta': OAUTH_HEADERS_BETA,
     },
   });
-  if (!res.ok) throw new Error(`Anthropic ${pathname} → ${res.status}`);
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    console.warn(`[oauthApi] ${pathname} → ${res.status} ${body.slice(0, 200)}`);
+    throw new Error(`Anthropic ${pathname} → ${res.status}`);
+  }
   return res.json();
 }
 

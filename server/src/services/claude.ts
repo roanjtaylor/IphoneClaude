@@ -4,7 +4,7 @@
 // `claude login`), and on a headless cloud host the CLAUDE_CODE_OAUTH_TOKEN env var
 // (from `claude setup-token`). Either way usage draws on the PLAN, not pay-per-use
 // API credits. If ANTHROPIC_API_KEY *is* set, the SDK prefers it and bills credits.
-// No key is hardcoded here. (See plan/backend.md and plan/hosting.md.)
+// No key is hardcoded here. (See plan/backend.md.)
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import os from 'node:os';
@@ -165,8 +165,17 @@ function sniffImageType(base64: string): string | null {
 function buildUserContent(messages: ChatMessage[]): string | unknown[] {
   const last = messages[messages.length - 1];
   const preamble = buildHistoryPreamble(messages);
-  const text = `${preamble}${last.content}`;
   const atts = last.attachments ?? [];
+  // The Anthropic API rejects empty text blocks, and a blank caption gives the model no
+  // instruction. When the turn is attachments-only, substitute a sensible default ask so the
+  // request is valid AND the model actually engages with the image/document.
+  const body =
+    last.content.trim().length > 0
+      ? last.content
+      : atts.length > 0
+        ? 'Please look at the attached file(s) and describe what you see.'
+        : last.content;
+  const text = `${preamble}${body}`;
   if (atts.length === 0) return text;
 
   if (atts.length > 0) {

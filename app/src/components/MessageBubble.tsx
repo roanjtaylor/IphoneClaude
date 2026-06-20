@@ -43,11 +43,14 @@ function AttachmentPreviews({ message, styles }: { message: Message; styles: Sty
 function MessageBubbleImpl({
   message,
   busy,
+  wide,
   isLastAssistant,
   onRegenerate,
 }: {
   message: Message;
   busy: boolean;
+  /** "Fit Width" mode: let bubbles use the full screen width (more text per line). */
+  wide?: boolean;
   isLastAssistant: boolean;
   onRegenerate?: () => void;
 }) {
@@ -59,7 +62,13 @@ function MessageBubbleImpl({
 
   return (
     <View style={[styles.row, isUser ? styles.rowUser : styles.rowAssistant]}>
-      <View style={[styles.bubble, isUser ? styles.bubbleUser : styles.bubbleAssistant]}>
+      <View
+        style={[
+          styles.bubble,
+          wide && styles.bubbleWide,
+          isUser ? styles.bubbleUser : styles.bubbleAssistant,
+        ]}
+      >
         <AttachmentPreviews message={message} styles={styles} />
         {empty && busy ? (
           <ActivityIndicator color={colors.textMuted} size="small" />
@@ -103,6 +112,7 @@ const makeStyles = (c: Colors) =>
     rowUser: { alignItems: 'flex-end' },
     rowAssistant: { alignItems: 'flex-start' },
     bubble: { maxWidth: '88%', borderRadius: radius.bubble, paddingHorizontal: 14, paddingVertical: 10 },
+    bubbleWide: { maxWidth: '100%' },
     bubbleUser: { backgroundColor: c.accent },
     bubbleAssistant: { backgroundColor: c.surface },
     userText: { color: c.textOnAccent, fontSize: 16, lineHeight: 22 },

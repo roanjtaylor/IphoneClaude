@@ -21,22 +21,31 @@ The "thin client": an Expo / React Native chat app that calls the server
   (navigation), `@react-native-async-storage/async-storage` + `expo-sqlite` (persistence),
   `react-native-markdown-display` (Markdown), `expo-image-picker` / `expo-document-picker` /
   `expo-image-manipulator` (attachments), `expo-clipboard` / `expo-sharing` / `expo-haptics`
-  (copy/share/feedback), `expo-splash-screen`.
+  (copy/share/feedback), `expo-media-library` (save images from replies), `react-native-svg`
+  (the Claude mascot + logo), `expo-splash-screen`.
 
 ## What the app does today
 
 A multi-screen, persisted chat app (entry: `app/App.tsx` → `src/navigation/RootStack.tsx`):
 
 - **Conversation list** (`src/screens/ConversationListScreen.tsx`) — saved chats newest-first,
-  with new / rename / delete and a gear → Settings.
+  with new / rename / delete (header **Edit** mode + floating ＋), and a **search bar** over
+  titles + message text (`db.searchConversations()`); a gear → Settings.
 - **Chat** (`src/screens/ChatScreen.tsx`, `src/hooks/useChat.ts`) — live SSE token streaming;
-  **Markdown** rendering with code blocks (highlight + copy), tables, links and images
-  (`src/components/MarkdownMessage.tsx`, `CodeBlock.tsx`); **attachments** (photo/camera/
-  document, sent as multimodal content blocks); a **stop** button; **copy / regenerate / share**
-  per reply; **visible web search** ("Searching the web…" + tappable source chips); a
-  **"Waking Claude up…"** banner with a keep-warm ping; haptics and timestamps.
-- **Settings** (`src/screens/SettingsScreen.tsx`) — server URL/secret, model picker, system
-  prompt, and a "Test connection" ping, all overriding the build-time defaults at runtime.
+  **Markdown** rendering with code blocks (highlight + copy), horizontally-scrollable tables,
+  links and saveable images (`src/components/MarkdownMessage.tsx`, `CodeBlock.tsx`,
+  `SavableImage.tsx`); **attachments** (photo/camera/document, sent as multimodal content
+  blocks); **pinch-to-zoom** + an **Update Fit** header button; a **stop** button;
+  **copy / regenerate / share** per reply; **visible web search** ("Searching the web…" +
+  tappable source chips); a **"Waking Claude up…"** banner with a keep-warm ping; haptics and
+  timestamps.
+- **Settings** (`src/screens/SettingsScreen.tsx`) — server URL/secret (lock-protected), a
+  **dynamic** model picker (`GET /api/models`), custom instructions, **appearance** (System /
+  Light / Dark), live **subscription usage** bars (`GET /api/usage`), and a "Test connection"
+  ping, all overriding the build-time defaults at runtime.
+- **Light/dark theming** — `src/theme.ts` palettes resolved at runtime by
+  `src/state/ThemeContext.tsx` from `useColorScheme()` or the Settings override; every screen
+  reads its palette via `useTheme()`.
 
 Conversations + messages persist in **SQLite** (`src/storage/db.ts`); attachment bytes live on
 disk (`src/storage/attachments.ts`). History is still resent to the (stateless) server each

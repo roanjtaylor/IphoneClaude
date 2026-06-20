@@ -35,6 +35,11 @@ generalised from the sibling `a_TasteTrainer` server (one-shot → multi-turn ch
 | `GET`  | `/api/health` | `{ ok: true }`. Public (no secret) — liveness + keep-warm. |
 | `POST` | `/api/chat`   | Body `{ messages: [{role, content, attachments?}], model?, systemPrompt? }`. Streams SSE: `delta {text}` · `tool {name,query?}` · `sources {sources}` … then `done {}` (or `error {error}`). Aborts on client disconnect. Requires `x-app-secret`. |
 | `POST` | `/api/title`  | Body `{ user, assistant?, model? }` → `{ title }`. One short non-streaming call to auto-name a chat after its first exchange. Requires `x-app-secret`. |
+| `GET`  | `/api/usage`  | Real subscription utilization (five-hour + seven-day % and reset times — the numbers Claude Code's `/usage` shows). `503` if the OAuth token is missing/expired. Requires `x-app-secret`. |
+| `GET`  | `/api/models` | `{ models }` — the live Anthropic model list for this subscription (so new releases appear in the picker without an app update), cached ~1 h with a static fallback (always `200`). Requires `x-app-secret`. |
+
+`/api/usage` and `/api/models` both go through `server/src/services/oauthApi.ts`, which calls
+Anthropic's OAuth endpoints with the host's `CLAUDE_CODE_OAUTH_TOKEN` (no API key, no cost).
 
 JSON body limit is **15 mb** (base64 attachments inflate ~33%).
 
