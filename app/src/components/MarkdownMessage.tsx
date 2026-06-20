@@ -2,8 +2,8 @@
 // inline code, links (tappable), images (capped to bubble width), and fenced code blocks
 // (delegated to CodeBlock for highlight + copy). Pure-JS (react-native-markdown-display),
 // safe in Expo Go on iOS 15.
-import { memo, useMemo } from 'react';
-import { Image, Linking, ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { memo, useEffect, useMemo, useState } from 'react';
+import { Image, Linking, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import Markdown, { type RenderRules } from 'react-native-markdown-display';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -13,6 +13,72 @@ import type { Source } from '../storage/types';
 import { radius, spacing, type Colors } from '../theme';
 import { CodeBlock } from './CodeBlock';
 import { SavableImage } from './SavableImage';
+
+/**
+ * An image embedded in an assistant reply (Markdown `![alt](url)`). Sizes itself to the
+ * image's natural aspect ratio (fitted to the bubble width) instead of a fixed square, and
+ * if the URL can't be loaded (404, blocked host, not really an image) it degrades to a
+ * tappable link rather than a blank box — so a reply image always reads as *something* useful.
+ */
+function MarkdownImage({
+  uri,
+  alt,
+  maxWidth,
+  colors,
+  onPress,
+}: {
+  uri: string;
+  alt?: string;
+  maxWidth: number;
+  colors: Colors;
+  onPress: () => void;
+}) {
+  const [ratio, setRatio] = useState<number | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    setRatio(null);
+    setFailed(false);
+    // getSize both measures the image and verifies it actually loads; its error path is our
+    // signal to fall back to a link.
+    Image.getSize(
+      uri,
+      (w, h) => {
+        if (alive && w > 0 && h > 0) setRatio(w / h);
+      },
+      () => {
+        if (alive) setFailed(true);
+      },
+    );
+    return () => {
+      alive = false;
+    };
+  }, [uri]);
+
+  if (failed) {
+    return (
+      <Text
+        style={{ color: colors.link, textDecorationLine: 'underline', marginVertical: spacing.sm }}
+        onPress={() => Linking.openURL(uri).catch(() => {})}
+      >
+        🖼 {alt?.trim() || 'View image'}
+      </Text>
+    );
+  }
+
+  // Cap height so a very tall image can't dominate the bubble; fall back to a 3:2 box until
+  // the real ratio is known.
+  const height = ratio ? Math.min(maxWidth / ratio, maxWidth * 1.4) : maxWidth * 0.66;
+  return (
+    <SavableImage
+      uri={uri}
+      style={{ width: maxWidth, height, borderRadius: radius.card, marginVertical: spacing.sm }}
+      resizeMode="contain"
+      onPress={onPress}
+    />
+  );
+}
 
 /**
  * Turn bare `[n]` citation markers into tappable links (`claude-cite:n`, opened in
@@ -42,7 +108,8 @@ function MarkdownMessageImpl({ content, sources }: { content: string; sources?: 
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { colors } = useTheme();
   const mdStyles = useMemo(() => makeMdStyles(colors), [colors]);
-  const maxImg = Math.min(width * 0.72, 320);
+  // Reply images fit the bubble width (capped) and size to their own aspect ratio.
+  const maxImg = Math.min(width * 0.78, 360);
   const body = useMemo(() => linkifyCitations(content, sources?.length ?? 0), [content, sources]);
 
   const rules: RenderRules = {
@@ -55,13 +122,14 @@ function MarkdownMessageImpl({ content, sources }: { content: string; sources?: 
     image: (node) => {
       const src = node.attributes?.src;
       if (!src) return null;
-      // Long-press to save (handled by SavableImage). Sized to the bubble width.
+      // Aspect-ratio fit + link fallback; tap opens full-screen, long-press saves/shares.
       return (
-        <SavableImage
+        <MarkdownImage
           key={node.key}
           uri={src}
-          style={{ width: maxImg, height: maxImg, borderRadius: radius.card, marginVertical: spacing.sm }}
-          resizeMode="contain"
+          alt={node.attributes?.alt}
+          maxWidth={maxImg}
+          colors={colors}
           onPress={() => navigation.navigate('ImageViewer', { uri: src })}
         />
       );
