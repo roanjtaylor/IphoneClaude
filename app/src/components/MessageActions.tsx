@@ -12,10 +12,15 @@ export function MessageActions({
   content,
   onRegenerate,
   canRegenerate,
+  stopped,
+  onContinue,
 }: {
   content: string;
   onRegenerate?: () => void;
   canRegenerate?: boolean;
+  /** This turn was stopped mid-stream — offer Retry + Continue instead of Regenerate. */
+  stopped?: boolean;
+  onContinue?: () => void;
 }) {
   const [copied, setCopied] = useState(false);
   const { colors } = useTheme();
@@ -51,7 +56,20 @@ export function MessageActions({
       <Text style={styles.action} onPress={exportReply}>
         Share
       </Text>
-      {canRegenerate && onRegenerate ? (
+      {canRegenerate && stopped ? (
+        <>
+          {onContinue ? (
+            <Text style={styles.action} onPress={onContinue}>
+              Continue
+            </Text>
+          ) : null}
+          {onRegenerate ? (
+            <Text style={styles.action} onPress={onRegenerate}>
+              Retry
+            </Text>
+          ) : null}
+        </>
+      ) : canRegenerate && onRegenerate ? (
         <Text style={styles.action} onPress={onRegenerate}>
           Regenerate
         </Text>

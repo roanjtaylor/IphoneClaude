@@ -4,7 +4,7 @@
 import * as SQLite from 'expo-sqlite';
 import { newId } from './id';
 import { deleteAttachment } from './attachments';
-import type { Attachment, Conversation, Message, Role, Source } from './types';
+import type { Attachment, Conversation, Message, Project, Role, Source } from './types';
 
 let dbPromise: Promise<SQLite.SQLiteDatabase> | null = null;
 
@@ -34,10 +34,37 @@ async function getDb(): Promise<SQLite.SQLiteDatabase> {
         CREATE INDEX IF NOT EXISTS idx_conv_updated ON conversations (updatedAt DESC);
         CREATE INDEX IF NOT EXISTS idx_msg_conv ON messages (conversationId, createdAt ASC);
       `);
+      await migrate(db);
       return db;
     });
   }
   return dbPromise;
+}
+
+/**
+ * Versioned migrations layered on top of the idempotent CREATE TABLEs above. SQLite has no
+ * `ADD COLUMN IF NOT EXISTS`, so PRAGMA user_version gates each step to run exactly once,
+ * protecting existing installs' data.
+ *   v1 — Projects: a `projects` table + a nullable `projectId` FK column on conversations.
+ */
+async function migrate(db: SQLite.SQLiteDatabase): Promise<void> {
+  const row = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
+  const version = row?.user_version ?? 0;
+  if (version < 1) {
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS projects (
+        id TEXT PRIMARY KEY NOT NULL,
+        title TEXT NOT NULL,
+        goal TEXT,
+        contextPrompt TEXT,
+        createdAt INTEGER NOT NULL,
+        updatedAt INTEGER NOT NULL
+      );
+      ALTER TABLE conversations ADD COLUMN projectId TEXT;
+      CREATE INDEX IF NOT EXISTS idx_conv_project ON conversations (projectId);
+      PRAGMA user_version = 1;
+    `);
+  }
 }
 
 /** Call once at app start (App.tsx) so the schema exists before any screen reads it. */
@@ -109,7 +136,7 @@ export async function getConversation(id: string): Promise<Conversation | null> 
 }
 
 export async function createConversation(
-  seed: Partial<Pick<Conversation, 'title' | 'model' | 'systemPrompt'>> = {},
+  seed: Partial<Pick<Conversation, 'title' | 'model' | 'systemPrompt' | 'projectId'>> = {},
 ): Promise<Conversation> {
   const db = await getDb();
   const now = Date.now();
@@ -120,17 +147,28 @@ export async function createConversation(
     updatedAt: now,
     model: seed.model,
     systemPrompt: seed.systemPrompt,
+    projectId: seed.projectId,
   };
   await db.runAsync(
-    'INSERT INTO conversations (id, title, createdAt, updatedAt, model, systemPrompt) VALUES (?, ?, ?, ?, ?, ?)',
+    'INSERT INTO conversations (id, title, createdAt, updatedAt, model, systemPrompt, projectId) VALUES (?, ?, ?, ?, ?, ?, ?)',
     conv.id,
     conv.title,
     conv.createdAt,
     conv.updatedAt,
     conv.model ?? null,
     conv.systemPrompt ?? null,
+    conv.projectId ?? null,
   );
   return conv;
+}
+
+/** Conversations belonging to a project, newest first. */
+export async function listConversationsByProject(projectId: string): Promise<Conversation[]> {
+  const db = await getDb();
+  return db.getAllAsync<Conversation>(
+    'SELECT * FROM conversations WHERE projectId = ? ORDER BY updatedAt DESC',
+    projectId,
+  );
 }
 
 export async function renameConversation(id: string, title: string): Promise<void> {
@@ -154,6 +192,75 @@ export async function deleteConversation(id: string): Promise<void> {
   }
   await db.runAsync('DELETE FROM messages WHERE conversationId = ?', id);
   await db.runAsync('DELETE FROM conversations WHERE id = ?', id);
+}
+
+// ---- Projects --------------------------------------------------------------
+
+export async function listProjects(): Promise<Project[]> {
+  const db = await getDb();
+  return db.getAllAsync<Project>('SELECT * FROM projects ORDER BY updatedAt DESC');
+}
+
+export async function getProject(id: string): Promise<Project | null> {
+  const db = await getDb();
+  return (await db.getFirstAsync<Project>('SELECT * FROM projects WHERE id = ?', id)) ?? null;
+}
+
+export async function createProject(
+  seed: Partial<Pick<Project, 'title' | 'goal' | 'contextPrompt'>> = {},
+): Promise<Project> {
+  const db = await getDb();
+  const now = Date.now();
+  const project: Project = {
+    id: newId('proj'),
+    title: seed.title?.trim() || 'New project',
+    goal: seed.goal,
+    contextPrompt: seed.contextPrompt,
+    createdAt: now,
+    updatedAt: now,
+  };
+  await db.runAsync(
+    'INSERT INTO projects (id, title, goal, contextPrompt, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?)',
+    project.id,
+    project.title,
+    project.goal ?? null,
+    project.contextPrompt ?? null,
+    project.createdAt,
+    project.updatedAt,
+  );
+  return project;
+}
+
+export async function updateProject(
+  id: string,
+  patch: Partial<Pick<Project, 'title' | 'goal' | 'contextPrompt'>>,
+): Promise<void> {
+  const db = await getDb();
+  const sets: string[] = [];
+  const args: SQLite.SQLiteBindValue[] = [];
+  if (patch.title !== undefined) {
+    sets.push('title = ?');
+    args.push(patch.title);
+  }
+  if (patch.goal !== undefined) {
+    sets.push('goal = ?');
+    args.push(patch.goal || null);
+  }
+  if (patch.contextPrompt !== undefined) {
+    sets.push('contextPrompt = ?');
+    args.push(patch.contextPrompt || null);
+  }
+  sets.push('updatedAt = ?');
+  args.push(Date.now());
+  args.push(id);
+  await db.runAsync(`UPDATE projects SET ${sets.join(', ')} WHERE id = ?`, ...args);
+}
+
+/** Delete a project. Its chats are kept but detached (projectId → NULL), never destroyed. */
+export async function deleteProject(id: string): Promise<void> {
+  const db = await getDb();
+  await db.runAsync('UPDATE conversations SET projectId = NULL WHERE projectId = ?', id);
+  await db.runAsync('DELETE FROM projects WHERE id = ?', id);
 }
 
 // ---- Messages --------------------------------------------------------------

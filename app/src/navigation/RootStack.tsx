@@ -4,6 +4,9 @@ import type { RootStackParamList } from './types';
 import { ConversationListScreen } from '../screens/ConversationListScreen';
 import { ChatScreen } from '../screens/ChatScreen';
 import { SettingsScreen } from '../screens/SettingsScreen';
+import { ImageViewerScreen } from '../screens/ImageViewerScreen';
+import { ProjectsListScreen } from '../screens/ProjectsListScreen';
+import { ProjectDetailScreen } from '../screens/ProjectDetailScreen';
 import { useTheme } from '../state/ThemeContext';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -27,6 +30,13 @@ export function RootStack() {
       />
       <Stack.Screen name="Chat" component={ChatScreen} options={{ title: 'Chat' }} />
       <Stack.Screen name="Settings" component={SettingsScreen} options={{ title: 'Settings' }} />
+      <Stack.Screen name="Projects" component={ProjectsListScreen} options={{ title: 'Projects' }} />
+      <Stack.Screen name="ProjectDetail" component={ProjectDetailScreen} options={{ title: 'Project' }} />
+      <Stack.Screen
+        name="ImageViewer"
+        component={ImageViewerScreen}
+        options={{ presentation: 'fullScreenModal', headerShown: false }}
+      />
     </Stack.Navigator>
   );
 }

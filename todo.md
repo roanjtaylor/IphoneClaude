@@ -21,7 +21,18 @@ subscription** (no API cost). What's already built:
   copy (`CodeBlock.tsx`). Plain text while streaming, upgrades to Markdown on completion
   (iPhone-7 perf).
 - **Copy / regenerate / share** per reply (`MessageActions.tsx`); **save images** from replies
-  to Photos / share (`SavableImage.tsx`).
+  to Photos / share (`SavableImage.tsx`); **tap any image to view full-screen** (zoomable modal,
+  `ImageViewerScreen.tsx`).
+- **Stop → Retry + Continue** — a stopped reply is marked **Stopped** and offers **Retry**
+  (regenerate) and **Continue** (resume the same bubble via a transient "keep going" wire turn +
+  `updateMessage`, merging sources). (`useChat.ts`, `MessageActions.tsx`.)
+- **Inline numbered citations** — the model emits `[n]` markers (system-prompt instruction) and
+  the app linkifies them to the matching web source, code-safe (`MarkdownMessage.linkifyCitations`).
+- **Share / export a whole conversation** as Markdown via the iOS share sheet
+  (`lib/exportConversation.ts`, header ••• menu in `ChatScreen`).
+- **Projects** — a parent **goal + standing context** that child chats inherit (injected into
+  the system prompt as `projectContext`); `projects` table + `projectId` FK via a
+  `user_version` migration (`ProjectsListScreen.tsx`, `ProjectDetailScreen.tsx`).
 
 **Persistence & navigation**
 - **SQLite** conversations + messages (`storage/db.ts`); attachment bytes on disk
@@ -34,7 +45,13 @@ subscription** (no API cost). What's already built:
 - **Attachments** — image (library/camera) + document (PDF/text), downscaled, sent as base64
   content blocks. Client forces a real JPEG re-encode; server **sniffs the true image format
   from magic bytes** (`sniffImageType`) and drops true HEIC with a clear note. (Image analysis
-  root-caused & verified end to end.)
+  root-caused & verified end to end.) **Attachments persist across the whole conversation** —
+  the client resends every turn's bytes (capped to a wire budget in `useChat.toWire`) and the
+  server rebuilds image/document blocks for *every* turn that had them, so a follow-up question
+  can still reference an image sent earlier.
+- **Code-block height cap** — a single fenced block (e.g. a "markdown art" / ASCII-art reply) is
+  capped (`CodeBlock.tsx`, `MAX_BLOCK_HEIGHT`) and scrolls internally, so it can't stretch the
+  message bubble down the whole screen and hide following messages + the composer.
 - **Pinch-to-zoom** chats + an **Update Fit** header button (bakes zoom into a layout scale).
 - Composer keyboard offset uses the real `useHeaderHeight()` so the last messages aren't hidden.
 
@@ -77,26 +94,27 @@ subscription** (no API cost). What's already built:
 - [ ] **Incremental Markdown while streaming** — currently plain text until the turn completes
       (iPhone-7 perf tradeoff). Try throttled (~5–8 fps) live Markdown with `React.memo`, falling
       back to plain on older hardware.
-- [ ] **Inline numbered citations** — render `[1]`, `[2]` footnote markers in the answer text
-      that link to the sources list, instead of only a separate "Sources" block.
+- [ ] **Citation alignment** — `[n]` markers map to sources by *discovery* order (best-effort),
+      so a marker can occasionally point at the wrong source. Tighten by having the model emit
+      the URL/source mapping, or render `[n]` as a scroll-to-chip instead of an open-URL.
 
 ### Medium priority
 - [ ] **Response style presets** — Normal / Concise / Explanatory / Formal picker, layered onto
       the per-chat custom instructions (the free-text custom-instructions field already ships).
-- [ ] **Share / export a whole conversation** (not just one reply) via the iOS share sheet as
-      Markdown; optionally copy-all.
-- [ ] **Pin / archive chats** and basic organization (folders or favourites) in the chat list.
+- [ ] **Pin / archive chats** and basic organization (favourites) in the chat list. (Projects
+      now group chats by shared context — see Shipped.)
+- [ ] **Project knowledge files** — let a project hold uploaded PDFs/text/images attached as
+      context to every chat in it (today projects carry text context only). Watch the 15 MB
+      request limit when combined with per-chat images.
 - [ ] **Real syntax highlighting** — replace the lightweight tokenizer (`components/highlight.ts`)
       with full language grammars + a theme, if it stays smooth on the iPhone 7.
 - [ ] **Attachment polish** — paste an image into the input, attach from the Files app, show
-      size/type limits and a clearer per-attachment error; consider remembering historical
-      attachments across turns (server currently only sends current-turn attachments).
-- [ ] **Stop → resume / retry affordance** and a clearer "stopped" state on a cancelled reply.
+      size/type limits and a clearer per-attachment error. (Historical attachments across turns
+      are now handled — see Shipped.)
 
 ### Lower priority / larger efforts
 - [ ] **Server-side sync (multi-device)** — history is local-only today. Persist conversations
       per-user on the server and sync. Large; only matters beyond one device.
-- [ ] **Projects** — group chats with shared "project knowledge" files. Sizeable feature.
 - [ ] **Artifacts** — a preview pane for generated code/HTML/documents.
 - [ ] **Voice dictation / voice mode** — mic-to-text input (iOS 15 speech support on RN is
       finicky — spike first).
@@ -110,5 +128,3 @@ subscription** (no API cost). What's already built:
 ## Phase 3 (separate effort)
 - [ ] **Code from the phone** — drive Claude Code against a GitHub repo on the same server to
       edit/commit/push. See [`plan/ethos.md`](plan/ethos.md).
-</content>
-</invoke>

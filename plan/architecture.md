@@ -36,11 +36,12 @@ always-on Space (rather than the laptop) is what makes "laptop-free" true.
 
 1. You type a prompt (optionally attaching photos/documents); the app writes the user turn to
    SQLite and appends it to the on-screen conversation.
-2. App `POST`s `{ messages: [...], model?, systemPrompt? }` (attachments as base64 content
-   blocks) to `/api/chat` with the `x-app-secret` header.
+2. App `POST`s `{ messages: [...], model?, systemPrompt?, projectContext? }` (attachments as
+   base64 content blocks — every turn's, so past images stay in context) to `/api/chat` with the
+   `x-app-secret` header.
 3. Server checks the secret, then calls the SDK's `query()` with the conversation (text, or a
-   streaming-input content-block message when attachments are present), the chosen model/system
-   prompt, and `allowedTools: ['WebSearch', 'WebFetch']`.
+   streaming-input content-block message when any turn has attachments), the chosen model/system
+   prompt (with any `projectContext` appended), and `allowedTools: ['WebSearch', 'WebFetch']`.
 4. The SDK spawns the Claude CLI, which authenticates with the **subscription** (because no
    API key is set) and streams partial text + tool activity back.
 5. The server forwards text as SSE `delta` events (plus `tool`/`sources` when web search runs);
@@ -56,6 +57,9 @@ Anthropic model list (so new releases appear in the picker), read through the ho
 - **Subscription auth** — `query()` with no `ANTHROPIC_API_KEY`; on the host a long-lived
   `CLAUDE_CODE_OAUTH_TOKEN` from `claude setup-token`. Zero API cost.
 - **Model** — `claude-opus-4-8` (set in `server/src/config.ts`, overridable via `CLAUDE_MODEL`).
+- **Local data model** — SQLite (`app/src/storage/db.ts`): `conversations` (+ optional
+  `projectId` FK), `messages`, and `projects` (goal + injected `contextPrompt`). Schema changes
+  ride a `PRAGMA user_version` migration so existing installs upgrade without data loss.
 - **Streaming** — Server-Sent Events end to end; the client reads it with `expo/fetch`
   (React Native's global `fetch` can't expose the response stream).
 - **Persistent host, not serverless** — each request spawns a CLI subprocess and streams for

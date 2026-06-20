@@ -5,16 +5,44 @@
 import { memo, useMemo } from 'react';
 import { Image, Linking, ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
 import Markdown, { type RenderRules } from 'react-native-markdown-display';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useTheme } from '../state/ThemeContext';
+import type { RootStackParamList } from '../navigation/types';
+import type { Source } from '../storage/types';
 import { radius, spacing, type Colors } from '../theme';
 import { CodeBlock } from './CodeBlock';
 import { SavableImage } from './SavableImage';
 
-function MarkdownMessageImpl({ content }: { content: string }) {
+/**
+ * Turn bare `[n]` citation markers into tappable links (`claude-cite:n`, opened in
+ * onLinkPress) when the message has sources. Code (fenced + inline) is protected so we never
+ * rewrite things like `arr[1]` in a snippet, and we gate `n` to a real source index and skip
+ * reference-link definitions (`[1]:`) and `[text][1]` constructs (the leading-char rule).
+ */
+function linkifyCitations(content: string, sourceCount: number): string {
+  if (sourceCount <= 0) return content;
+  const codeOrProse = /(```[\s\S]*?```|~~~[\s\S]*?~~~|`[^`]*`)/g;
+  return content
+    .split(codeOrProse)
+    .map((part, i) => {
+      if (i % 2 === 1) return part; // captured code segment — leave untouched
+      return part.replace(/(^|[\s.,;:!?)])\[(\d{1,2})\](?!:)/g, (m, pre: string, num: string) => {
+        const n = parseInt(num, 10);
+        if (n < 1 || n > sourceCount) return m;
+        return `${pre}[\\[${n}\\]](claude-cite:${n})`;
+      });
+    })
+    .join('');
+}
+
+function MarkdownMessageImpl({ content, sources }: { content: string; sources?: Source[] }) {
   const { width } = useWindowDimensions();
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { colors } = useTheme();
   const mdStyles = useMemo(() => makeMdStyles(colors), [colors]);
   const maxImg = Math.min(width * 0.72, 320);
+  const body = useMemo(() => linkifyCitations(content, sources?.length ?? 0), [content, sources]);
 
   const rules: RenderRules = {
     fence: (node) => (
@@ -33,6 +61,7 @@ function MarkdownMessageImpl({ content }: { content: string }) {
           uri={src}
           style={{ width: maxImg, height: maxImg, borderRadius: radius.card, marginVertical: spacing.sm }}
           resizeMode="contain"
+          onPress={() => navigation.navigate('ImageViewer', { uri: src })}
         />
       );
     },
@@ -54,11 +83,17 @@ function MarkdownMessageImpl({ content }: { content: string }) {
       style={mdStyles}
       rules={rules}
       onLinkPress={(url) => {
+        const cite = url.match(/^claude-cite:(\d+)$/);
+        if (cite) {
+          const s = sources?.[parseInt(cite[1], 10) - 1];
+          if (s) Linking.openURL(s.url).catch(() => {});
+          return false;
+        }
         Linking.openURL(url).catch(() => {});
         return false;
       }}
     >
-      {content}
+      {body}
     </Markdown>
   );
 }

@@ -110,9 +110,14 @@ export function ConversationListScreen({ navigation }: Props) {
     useCallback(() => {
       navigation.setOptions({
         headerLeft: () => (
-          <TouchableOpacity onPress={() => navigation.navigate('Settings')} hitSlop={10}>
-            <Text style={styles.headerBtn}>⚙</Text>
-          </TouchableOpacity>
+          <View style={styles.headerLeft}>
+            <TouchableOpacity onPress={() => navigation.navigate('Settings')} hitSlop={10}>
+              <Text style={styles.headerBtn}>⚙</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => navigation.navigate('Projects')} hitSlop={10}>
+              <Text style={styles.headerBtn}>📁</Text>
+            </TouchableOpacity>
+          </View>
         ),
         headerRight: () =>
           conversations.length > 0 ? (
@@ -228,6 +233,7 @@ const makeStyles = (c: Colors) =>
     },
     list: { padding: spacing.md, paddingBottom: 96 },
     emptyWrap: { flex: 1 },
+    headerLeft: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
     headerBtn: { color: c.accent, fontSize: 16, fontWeight: '600', paddingHorizontal: 4 },
     row: {
       flexDirection: 'row',

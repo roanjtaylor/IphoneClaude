@@ -10,6 +10,11 @@ import { radius, spacing, type Colors } from '../theme';
 import { tokenize } from './highlight';
 
 const HIGHLIGHT_LIMIT = 3000; // chars; above this, render plain monospace.
+// Cap how tall a single code block may grow. A "markdown art" / ASCII-art reply is one
+// huge fenced block; uncapped it stretches the white bubble down the whole screen, hiding
+// the rest of the conversation (and the composer) below it. Capping the block and letting
+// it scroll INTERNALLY closes the bubble so following messages render separately.
+const MAX_BLOCK_HEIGHT = 360;
 
 function CodeBlockImpl({ code, language }: { code: string; language?: string }) {
   const [copied, setCopied] = useState(false);
@@ -33,16 +38,25 @@ function CodeBlockImpl({ code, language }: { code: string; language?: string }) 
           <Text style={styles.copy}>{copied ? 'Copied' : 'Copy'}</Text>
         </Pressable>
       </View>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.scroll}>
-        <Text style={styles.code} selectable>
-          {highlight
-            ? tokenize(body, colors.codeText).map((t, i) => (
-                <Text key={i} style={{ color: t.color }}>
-                  {t.text}
-                </Text>
-              ))
-            : body}
-        </Text>
+      {/* Vertical scroll caps the block's height (tall art/code scrolls inside the box);
+          horizontal scroll keeps wide lines from being squashed. nestedScrollEnabled lets
+          the inner scroll work within the outer conversation ScrollView. */}
+      <ScrollView
+        style={styles.vscroll}
+        nestedScrollEnabled
+        showsVerticalScrollIndicator
+      >
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.scroll}>
+          <Text style={styles.code} selectable>
+            {highlight
+              ? tokenize(body, colors.codeText).map((t, i) => (
+                  <Text key={i} style={{ color: t.color }}>
+                    {t.text}
+                  </Text>
+                ))
+              : body}
+          </Text>
+        </ScrollView>
       </ScrollView>
     </View>
   );
@@ -71,6 +85,7 @@ const makeStyles = (c: Colors) =>
     },
     lang: { color: c.textMuted, fontSize: 12 },
     copy: { color: c.accent, fontSize: 12, fontWeight: '600' },
+    vscroll: { maxHeight: MAX_BLOCK_HEIGHT },
     scroll: { padding: spacing.md },
     code: {
       color: c.codeText,

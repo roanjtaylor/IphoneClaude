@@ -20,12 +20,14 @@ import type { RootStackParamList } from '../navigation/types';
 import { useChat } from '../hooks/useChat';
 import { useSettings } from '../state/SettingsContext';
 import { useTheme } from '../state/ThemeContext';
-import { getConversation, renameConversation } from '../storage/db';
+import { getConversation, getProject, renameConversation } from '../storage/db';
+import type { Message } from '../storage/types';
 import { pingHealth, type ApiConfig } from '../api';
 import { MessageBubble } from '../components/MessageBubble';
 import { Composer } from '../components/Composer';
 import { StatusBanner } from '../components/WakingBanner';
 import { ClaudeMascot } from '../components/ClaudeMascot';
+import { shareConversation } from '../lib/exportConversation';
 import { spacing, type Colors } from '../theme';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Chat'>;
@@ -36,8 +38,14 @@ export function ChatScreen({ route, navigation }: Props) {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const headerHeight = useHeaderHeight();
-  const [convOverrides, setConvOverrides] = useState<{ model?: string; systemPrompt?: string }>({});
+  const [convOverrides, setConvOverrides] = useState<{
+    model?: string;
+    systemPrompt?: string;
+    projectContext?: string;
+  }>({});
   const listRef = useRef<ScrollView>(null);
+  // Latest messages for the header menu, without re-registering the header each delta.
+  const messagesRef = useRef<Message[]>([]);
 
   // "Update Fit": a pure layout reflow. When on, the conversation drops its side margins and
   // bubbles widen to the full screen width — same font size, just more text per line (a more
@@ -50,21 +58,25 @@ export function ChatScreen({ route, navigation }: Props) {
     appSharedSecret: settings.appSharedSecret,
     model: convOverrides.model || settings.model,
     systemPrompt: convOverrides.systemPrompt || settings.systemPrompt,
+    projectContext: convOverrides.projectContext,
   };
 
   const onTitle = useCallback((title: string) => navigation.setParams({ title }), [navigation]);
 
-  const { messages, busy, error, waking, searching, send, stop, regenerate } = useChat(
-    conversationId,
-    config,
-    onTitle,
-  );
+  const { messages, busy, error, waking, searching, send, stop, regenerate, continueReply } =
+    useChat(conversationId, config, onTitle);
 
   // Load per-chat overrides + set the header title; warm the server.
   useEffect(() => {
-    getConversation(conversationId).then((c) => {
+    getConversation(conversationId).then(async (c) => {
       if (c) {
-        setConvOverrides({ model: c.model, systemPrompt: c.systemPrompt });
+        // A chat in a project inherits the project's standing context.
+        const project = c.projectId ? await getProject(c.projectId) : null;
+        setConvOverrides({
+          model: c.model,
+          systemPrompt: c.systemPrompt,
+          projectContext: project?.contextPrompt || undefined,
+        });
         if (!route.params.title) navigation.setParams({ title: c.title });
       }
     });
@@ -93,6 +105,28 @@ export function ChatScreen({ route, navigation }: Props) {
   const toggleFit = useCallback(() => setWide((w) => !w), []);
   const resetFit = useCallback(() => setWide(false), []);
 
+  // Keep the ref fresh so the header menu reads the latest transcript.
+  messagesRef.current = messages;
+
+  // Header overflow menu: Fit Width toggle + share the whole conversation as Markdown.
+  const openMenu = useCallback(() => {
+    Alert.alert('Chat options', undefined, [
+      { text: wide ? 'Reset Fit' : 'Fit Width', onPress: toggleFit },
+      {
+        text: 'Share conversation',
+        onPress: () => {
+          const msgs = messagesRef.current;
+          if (msgs.length === 0) {
+            Alert.alert('Nothing to share', 'This chat is empty.');
+            return;
+          }
+          void shareConversation(route.params.title ?? 'Chat', msgs, Date.now());
+        },
+      },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  }, [wide, toggleFit, route.params.title]);
+
   useLayoutEffect(() => {
     const title = route.params.title ?? 'Chat';
     navigation.setOptions({
@@ -104,12 +138,12 @@ export function ChatScreen({ route, navigation }: Props) {
         </Pressable>
       ),
       headerRight: () => (
-        <Pressable onPress={toggleFit} onLongPress={resetFit} hitSlop={8}>
-          <Text style={styles.headerAction}>{wide ? 'Reset Fit' : 'Fit Width'}</Text>
+        <Pressable onPress={openMenu} onLongPress={resetFit} hitSlop={8}>
+          <Text style={styles.headerAction}>•••</Text>
         </Pressable>
       ),
     });
-  }, [navigation, route.params.title, promptRename, toggleFit, resetFit, wide, styles]);
+  }, [navigation, route.params.title, promptRename, openMenu, resetFit, wide, styles]);
 
   const scrollToEnd = useCallback((animated = true) => {
     requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated }));
@@ -165,6 +199,7 @@ export function ChatScreen({ route, navigation }: Props) {
                 wide={wide}
                 isLastAssistant={item.id === lastAssistantId}
                 onRegenerate={regenerate}
+                onContinue={continueReply}
               />
             ))
           )}

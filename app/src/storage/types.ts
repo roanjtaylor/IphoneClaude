@@ -4,7 +4,9 @@
 
 export type Role = 'user' | 'assistant';
 
-export type MessageStatus = 'streaming' | 'complete' | 'error';
+// 'stopped' = the user pressed Stop with a partial reply already streamed (distinct from
+// 'complete' so the UI can offer Retry / Continue on it).
+export type MessageStatus = 'streaming' | 'complete' | 'error' | 'stopped';
 
 /** A file attached to a user turn. Bytes are on disk at `uri`; base64 is produced on
  * demand at send time and never persisted. */
@@ -43,4 +45,18 @@ export type Conversation = {
   /** Optional per-chat overrides (fall back to global Settings). */
   model?: string;
   systemPrompt?: string;
+  /** Parent project (its context is injected into this chat). */
+  projectId?: string;
+};
+
+/** A project groups chats under a shared goal + standing context instructions. */
+export type Project = {
+  id: string;
+  title: string;
+  /** A short statement of the project's overall goal (for the user; not sent to Claude). */
+  goal?: string;
+  /** Standing context injected into every child chat's system prompt. */
+  contextPrompt?: string;
+  createdAt: number;
+  updatedAt: number;
 };

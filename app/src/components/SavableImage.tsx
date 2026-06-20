@@ -22,6 +22,8 @@ type Props = {
   uri: string;
   style?: StyleProp<ImageStyle>;
   resizeMode?: ImageResizeMode;
+  /** Tap handler (e.g. open the full-screen viewer). Long-press still saves/shares. */
+  onPress?: () => void;
 };
 
 /** Resolve `uri` to a local file path, downloading a remote image if needed. */
@@ -41,7 +43,7 @@ async function toLocalFile(uri: string): Promise<string> {
   return local;
 }
 
-export function SavableImage({ uri, style, resizeMode = 'contain' }: Props) {
+export function SavableImage({ uri, style, resizeMode = 'contain', onPress }: Props) {
   const [busy, setBusy] = useState(false);
 
   const saveToPhotos = async () => {
@@ -86,7 +88,7 @@ export function SavableImage({ uri, style, resizeMode = 'contain' }: Props) {
   };
 
   return (
-    <Pressable onLongPress={onLongPress} delayLongPress={300}>
+    <Pressable onPress={onPress} onLongPress={onLongPress} delayLongPress={300}>
       <Image source={{ uri }} style={style} resizeMode={resizeMode} />
       {busy ? (
         <View style={[StyleSheet.absoluteFill, styles.busy]}>

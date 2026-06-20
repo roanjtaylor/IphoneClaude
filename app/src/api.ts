@@ -9,6 +9,8 @@ export type ApiConfig = {
   appSharedSecret: string;
   model?: string;
   systemPrompt?: string;
+  /** Parent-project context, appended to the system prompt server-side. */
+  projectContext?: string;
 };
 
 /** A base64 attachment sent alongside a user turn. */
@@ -59,6 +61,7 @@ export async function streamChat(
       messages,
       model: config.model || undefined,
       systemPrompt: config.systemPrompt || undefined,
+      projectContext: config.projectContext || undefined,
     }),
     signal,
   });

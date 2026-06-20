@@ -32,13 +32,22 @@ A multi-screen, persisted chat app (entry: `app/App.tsx` → `src/navigation/Roo
   with new / rename / delete (header **Edit** mode + floating ＋), and a **search bar** over
   titles + message text (`db.searchConversations()`); a gear → Settings.
 - **Chat** (`src/screens/ChatScreen.tsx`, `src/hooks/useChat.ts`) — live SSE token streaming;
-  **Markdown** rendering with code blocks (highlight + copy), horizontally-scrollable tables,
-  links and saveable images (`src/components/MarkdownMessage.tsx`, `CodeBlock.tsx`,
-  `SavableImage.tsx`); **attachments** (photo/camera/document, sent as multimodal content
-  blocks); **pinch-to-zoom** + an **Update Fit** header button; a **stop** button;
+  **Markdown** rendering with code blocks (highlight + copy, height-capped), horizontally-
+  scrollable tables, links and saveable images (`src/components/MarkdownMessage.tsx`,
+  `CodeBlock.tsx`, `SavableImage.tsx`); **inline numbered citations** (`[n]` markers linkified
+  to the web sources); **attachments** (photo/camera/document, sent as multimodal content
+  blocks, **resent for every past turn** so earlier images stay in context, capped to a wire
+  budget in `useChat.toWire`); **tap any image to view it full-screen** (zoomable modal,
+  `ImageViewerScreen.tsx`); **pinch-to-zoom** + a header **••• menu** (Fit Width / Reset Fit /
+  **Share conversation** as Markdown, `lib/exportConversation.ts`); a **stop** button with a
+  **Stopped** state offering **Retry** (regenerate) and **Continue** (resume the same reply);
   **copy / regenerate / share** per reply; **visible web search** ("Searching the web…" +
   tappable source chips); a **"Waking Claude up…"** banner with a keep-warm ping; haptics and
   timestamps.
+- **Projects** (`src/screens/ProjectsListScreen.tsx`, `ProjectDetailScreen.tsx`) — group chats
+  under a shared **goal + standing context**; a project's `contextPrompt` is injected into every
+  child chat's system prompt (resolved in `ChatScreen`, sent as `projectContext`). Reached from
+  the 📁 button on the home header; new chats started inside a project carry its `projectId`.
 - **Settings** (`src/screens/SettingsScreen.tsx`) — server URL/secret (lock-protected), a
   **dynamic** model picker (`GET /api/models`), custom instructions, **appearance** (System /
   Light / Dark), and a "Test connection" ping, all overriding the build-time defaults at runtime.
@@ -46,9 +55,11 @@ A multi-screen, persisted chat app (entry: `app/App.tsx` → `src/navigation/Roo
   `src/state/ThemeContext.tsx` from `useColorScheme()` or the Settings override; every screen
   reads its palette via `useTheme()`.
 
-Conversations + messages persist in **SQLite** (`src/storage/db.ts`); attachment bytes live on
-disk (`src/storage/attachments.ts`). History is still resent to the (stateless) server each
-turn. Remaining gaps vs. the official app are tracked in [`../todo.md`](../todo.md).
+Conversations + messages + **projects** persist in **SQLite** (`src/storage/db.ts`, with a
+`PRAGMA user_version` migration adding the `projects` table and a `projectId` FK on
+conversations); attachment bytes live on disk (`src/storage/attachments.ts`). History (incl.
+every turn's attachments) is resent to the (stateless) server each turn. Remaining gaps vs. the
+official app are tracked in [`../todo.md`](../todo.md).
 
 ## Identifiers (live)
 

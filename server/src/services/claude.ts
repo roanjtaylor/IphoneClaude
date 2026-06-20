@@ -80,6 +80,11 @@ export const DEFAULT_SYSTEM_PROMPT = [
   'Use the web search tool when the user asks about current events, recent releases,',
   'prices, or anything where up-to-date information matters; otherwise answer directly',
   'from your own knowledge. Format answers in clean Markdown.',
+  'When your answer relies on web search results, add inline citation markers like [1] or',
+  '[2] right after the sentence or claim each one supports, numbered in the order you first',
+  'cite them — these numbers line up with the Sources list shown to the user. Only cite',
+  'sources you actually used; never invent citation numbers, and skip citations entirely',
+  'when you did not search.',
 ].join(' ');
 
 /** A base64-encoded attachment travelling with a user turn. */
@@ -108,14 +113,31 @@ export type StreamCallbacks = {
 export type StreamOptions = {
   model?: string;
   systemPrompt?: string;
+  /** Parent-project context, appended after the (custom or default) system prompt. */
+  projectContext?: string;
   /** Abort from the caller (e.g. client disconnected). */
   signal?: AbortSignal;
 };
 
 /**
+ * Compose the effective system prompt. Backwards-compatible: with no projectContext this is
+ * exactly the prior behavior (`systemPrompt || DEFAULT_SYSTEM_PROMPT`); a project simply
+ * appends its standing context below whichever base prompt is in effect.
+ */
+function buildSystemPrompt(options: StreamOptions): string {
+  const base = options.systemPrompt || DEFAULT_SYSTEM_PROMPT;
+  const ctx = options.projectContext?.trim();
+  return ctx
+    ? `${base}\n\nProject context (applies to all chats in this project):\n${ctx}`
+    : base;
+}
+
+/**
  * Flatten prior conversation turns into a text preamble. The newest message (the
  * current user turn) is handled separately so its attachments can ride along as
- * structured content blocks. History stays text-only (stateless server, plan/backend.md).
+ * structured content blocks. Used only on the all-text fast path; when ANY turn in the
+ * conversation carries an attachment we build interleaved content blocks instead so that
+ * earlier images/documents stay visible to the model (see buildUserContent).
  */
 function buildHistoryPreamble(messages: ChatMessage[]): string {
   const prior = messages.slice(0, -1);
@@ -161,56 +183,83 @@ function sniffImageType(base64: string): string | null {
   return null;
 }
 
-/** Build the Anthropic content-block array for the current user turn. */
+/**
+ * Append one attachment to a content-block array as an image/document block. Trusts the
+ * sniffed bytes over the client label. True HEIC can't be read by the model, so instead of
+ * sending dead bytes we drop it and push a short note so the model knows it was there.
+ */
+function pushAttachmentBlock(blocks: unknown[], a: Attachment): void {
+  if (a.type === 'image') {
+    const sniffed = sniffImageType(a.data);
+    if (sniffed === 'heic') {
+      console.warn('[chat] dropping HEIC image — convert to JPEG/PNG before sending.');
+      blocks.push({
+        type: 'text',
+        text: '(Note: an attached image could not be read because it was in HEIC format and was not converted to JPEG.)',
+      });
+      return;
+    }
+    const media_type = sniffed ?? (IMAGE_TYPES.has(a.mediaType?.toLowerCase()) ? a.mediaType.toLowerCase() : 'image/jpeg');
+    blocks.push({ type: 'image', source: { type: 'base64', media_type, data: a.data } });
+    return;
+  }
+  const media_type = (a.mediaType || 'application/pdf').toLowerCase();
+  blocks.push({ type: 'document', source: { type: 'base64', media_type, data: a.data } });
+}
+
+/**
+ * Build the Anthropic content for the request.
+ *
+ * Fast path: when NO turn carries an attachment, return a single flattened string (the
+ * proven all-text path).
+ *
+ * Attachment path: when any turn — current OR earlier — has an attachment, build one user
+ * message whose content interleaves each turn's text with its image/document blocks, in
+ * order. This is the fix for "Claude can't see the image I sent last turn": the server is
+ * stateless and the app resends full history with every turn's bytes, but we previously only
+ * attached the CURRENT turn's files and flattened the rest to text — so any image from an
+ * earlier turn vanished. Re-sending every turn's blocks keeps the whole conversation visible.
+ */
 function buildUserContent(messages: ChatMessage[]): string | unknown[] {
   const last = messages[messages.length - 1];
-  const preamble = buildHistoryPreamble(messages);
-  const atts = last.attachments ?? [];
+  const lastAtts = last.attachments ?? [];
   // The Anthropic API rejects empty text blocks, and a blank caption gives the model no
   // instruction. When the turn is attachments-only, substitute a sensible default ask so the
   // request is valid AND the model actually engages with the image/document.
   const body =
     last.content.trim().length > 0
       ? last.content
-      : atts.length > 0
+      : lastAtts.length > 0
         ? 'Please look at the attached file(s) and describe what you see.'
         : last.content;
-  const text = `${preamble}${body}`;
-  if (atts.length === 0) return text;
 
-  if (atts.length > 0) {
-    console.log(
-      `[chat] ${atts.length} attachment(s):`,
-      atts.map((a) => `${a.type}/${a.mediaType}(${Math.round((a.data?.length ?? 0) / 1366)}KB)`).join(', '),
-    );
-  }
+  const anyAttachments = messages.some((m) => (m.attachments?.length ?? 0) > 0);
+  if (!anyAttachments) return `${buildHistoryPreamble(messages)}${body}`;
 
-  const blocks: unknown[] = [{ type: 'text', text }];
-  for (const a of atts) {
-    if (a.type === 'image') {
-      // Trust the bytes, not the label.
-      const sniffed = sniffImageType(a.data);
-      if (sniffed === 'heic') {
-        console.warn('[chat] dropping HEIC image — convert to JPEG/PNG before sending.');
-        blocks[0] = {
-          type: 'text',
-          text: `${text}\n\n(Note: an attached image could not be read because it was in HEIC format and was not converted to JPEG.)`,
-        };
-        continue;
-      }
-      const media_type = sniffed ?? (IMAGE_TYPES.has(a.mediaType?.toLowerCase()) ? a.mediaType.toLowerCase() : 'image/jpeg');
-      blocks.push({
-        type: 'image',
-        source: { type: 'base64', media_type, data: a.data },
-      });
-    } else {
-      const media_type = (a.mediaType || 'application/pdf').toLowerCase();
-      blocks.push({
-        type: 'document',
-        source: { type: 'base64', media_type, data: a.data },
-      });
+  const totalAtts = messages.reduce((n, m) => n + (m.attachments?.length ?? 0), 0);
+  console.log(
+    `[chat] ${totalAtts} attachment(s) across ${messages.length} turn(s):`,
+    messages
+      .flatMap((m) => m.attachments ?? [])
+      .map((a) => `${a.type}/${a.mediaType}(${Math.round((a.data?.length ?? 0) / 1366)}KB)`)
+      .join(', '),
+  );
+
+  const blocks: unknown[] = [];
+  const prior = messages.slice(0, -1);
+  if (prior.length > 0) {
+    blocks.push({ type: 'text', text: 'Conversation so far:' });
+    for (const m of prior) {
+      const label = m.role === 'user' ? 'User' : 'Assistant';
+      const content = m.content.trim().length > 0 ? m.content : '(no text)';
+      blocks.push({ type: 'text', text: `${label}: ${content}` });
+      for (const a of m.attachments ?? []) pushAttachmentBlock(blocks, a);
     }
+    blocks.push({ type: 'text', text: `User: ${body}` });
+  } else {
+    blocks.push({ type: 'text', text: body });
   }
+  for (const a of lastAtts) pushAttachmentBlock(blocks, a);
   return blocks;
 }
 
@@ -300,7 +349,7 @@ export async function streamChat(
       prompt,
       options: {
         model: options.model || CLAUDE_MODEL,
-        systemPrompt: options.systemPrompt || DEFAULT_SYSTEM_PROMPT,
+        systemPrompt: buildSystemPrompt(options),
         // Allow only web tools — enough to mirror the real app, nothing that touches
         // the host filesystem or shell.
         allowedTools: ['WebSearch', 'WebFetch'],

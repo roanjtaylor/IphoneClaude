@@ -21,19 +21,27 @@ generalised from the sibling `a_TasteTrainer` server (one-shot → multi-turn ch
   button / dropped connection) via `res` `'close'`.
 - **Web-tool visibility:** the stream loop watches for `tool_use` blocks and tool results and
   emits `tool` / `sources` SSE events so the app can show a "Searching the web…" state and
-  tappable source links.
+  tappable source links. `DEFAULT_SYSTEM_PROMPT` also asks the model to add inline `[n]`
+  citation markers (in citation order, matching the Sources list) when it answers from search;
+  the app linkifies them to the corresponding source.
+- **Project context:** the request may include a `projectContext` string (the parent project's
+  standing context). `buildSystemPrompt()` appends it below the effective system prompt
+  (`systemPrompt || DEFAULT_SYSTEM_PROMPT`); with none, behavior is byte-identical to before.
 - **Conversation & attachments:** stateless on the server — the app sends the full history each
-  request. Text turns are flattened into one prompt; when the current turn has **attachments**,
-  `server/src/services/claude.ts` switches to the SDK's streaming-input mode and passes the user
-  turn as Anthropic content blocks (`{type:'image'|'document', source:{type:'base64',…}}`) —
-  still `query()`, still subscription auth.
+  request, including every turn's attachment bytes. An all-text conversation is flattened into
+  one prompt (the proven fast path). As soon as **any** turn — current or earlier — carries an
+  attachment, `server/src/services/claude.ts` switches to the SDK's streaming-input mode and
+  builds one user message whose content **interleaves each turn's text with its image/document
+  blocks** (`{type:'image'|'document', source:{type:'base64',…}}`), in order. Re-sending every
+  turn's blocks is what lets the model still "see" an image from an earlier turn on a follow-up
+  question — still `query()`, still subscription auth.
 
 ## API
 
 | Method | Path | Notes |
 | --- | --- | --- |
 | `GET`  | `/api/health` | `{ ok: true }`. Public (no secret) — liveness + keep-warm. |
-| `POST` | `/api/chat`   | Body `{ messages: [{role, content, attachments?}], model?, systemPrompt? }`. Streams SSE: `delta {text}` · `tool {name,query?}` · `sources {sources}` … then `done {}` (or `error {error}`). Aborts on client disconnect. Requires `x-app-secret`. |
+| `POST` | `/api/chat`   | Body `{ messages: [{role, content, attachments?}], model?, systemPrompt?, projectContext? }`. Streams SSE: `delta {text}` · `tool {name,query?}` · `sources {sources}` … then `done {}` (or `error {error}`). Aborts on client disconnect. Requires `x-app-secret`. |
 | `POST` | `/api/title`  | Body `{ user, assistant?, model? }` → `{ title }`. One short non-streaming call to auto-name a chat after its first exchange. Requires `x-app-secret`. |
 | `GET`  | `/api/models` | `{ models }` — the live Anthropic model list for this subscription (so new releases appear in the picker without an app update), cached ~1 h with a static fallback (always `200`). Requires `x-app-secret`. |
 

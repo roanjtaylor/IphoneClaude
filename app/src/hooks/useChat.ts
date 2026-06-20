@@ -15,6 +15,7 @@ import {
   deleteMessagesFrom,
   getMessages,
   renameConversation,
+  touchConversation,
   updateMessage,
 } from '../storage/db';
 import { toBase64 } from '../storage/attachments';
@@ -22,6 +23,20 @@ import type { Attachment, Message } from '../storage/types';
 import { newId } from '../storage/id';
 
 const WAKE_DELAY_MS = 3000;
+// Cap the total base64 attachment payload across the WHOLE request. The server is
+// stateless, so we resend every turn's image/document bytes each time (that's what keeps
+// past images in context). A long, image-heavy chat could otherwise blow the server's
+// 15 MB body limit and 413; we keep the newest attachments within this budget and drop
+// older ones with a note. base64 inflates ~33%, so 12 MB of base64 leaves headroom.
+const MAX_WIRE_BASE64 = 12 * 1024 * 1024;
+
+// A transient user turn appended to the wire (only) when resuming a stopped reply, so the
+// model continues its previous answer. Never persisted or shown.
+const CONTINUE_TURN: WireMessage = {
+  role: 'user',
+  content:
+    'Continue your previous response from exactly where it stopped. Do not repeat or restate anything you already wrote — just keep going seamlessly.',
+};
 
 type SendArgs = { text: string; attachments?: Attachment[] };
 
@@ -59,44 +74,89 @@ export function useChat(
     }
   };
 
-  // Turn on-disk attachments into base64 wire form at send time (never persisted).
+  // Turn on-disk attachments into base64 wire form at send time (never persisted). The full
+  // history — including every past turn's attachments — is resent so the model keeps earlier
+  // images/files in context. To stay under the server body limit, walk newest-first and keep
+  // attachments within MAX_WIRE_BASE64; any older ones beyond the budget are dropped with a
+  // short note in that turn's text.
   const toWire = useCallback(async (history: Message[]): Promise<WireMessage[]> => {
-    const out: WireMessage[] = [];
-    for (const m of history) {
-      let attachments: WireAttachment[] | undefined;
-      if (m.attachments && m.attachments.length > 0) {
-        attachments = [];
-        for (const a of m.attachments) {
+    const encoded = await Promise.all(
+      history.map(async (m) => {
+        const atts: WireAttachment[] = [];
+        for (const a of m.attachments ?? []) {
           try {
-            const data = await toBase64(a.uri);
-            attachments.push({ type: a.type, mediaType: a.mediaType, data });
+            atts.push({ type: a.type, mediaType: a.mediaType, data: await toBase64(a.uri) });
           } catch {
             /* skip an unreadable file rather than failing the whole turn */
           }
         }
+        return { role: m.role, content: m.content, atts };
+      }),
+    );
+
+    const out: WireMessage[] = encoded.map((e) => ({ role: e.role, content: e.content }));
+    let used = 0;
+    for (let i = encoded.length - 1; i >= 0; i--) {
+      const { atts } = encoded[i];
+      if (atts.length === 0) continue;
+      const kept: WireAttachment[] = [];
+      let droppedHere = 0;
+      for (const a of atts) {
+        if (used + a.data.length <= MAX_WIRE_BASE64) {
+          used += a.data.length;
+          kept.push(a);
+        } else {
+          droppedHere++;
+        }
       }
-      out.push({ role: m.role, content: m.content, attachments });
+      if (kept.length > 0) out[i].attachments = kept;
+      if (droppedHere > 0) {
+        const note = `(${droppedHere} earlier attachment${droppedHere > 1 ? 's' : ''} omitted to stay within the size limit)`;
+        out[i].content = out[i].content ? `${out[i].content}\n\n${note}` : note;
+        console.warn(`[chat] dropped ${droppedHere} attachment(s) from an earlier turn to fit the wire budget.`);
+      }
     }
     return out;
   }, []);
 
-  /** Run a streamed assistant turn over `history` (which already ends at the user turn). */
+  /**
+   * Run a streamed assistant turn.
+   *  - `mode: 'new'` (default): append a fresh assistant turn over `history` (which already
+   *    ends at the user turn). On Stop with partial text, the turn is saved as 'stopped'.
+   *  - `mode: 'continue'`: resume the existing (stopped) `target` message in place — seed the
+   *    stream with its current content/sources, send the history followed by a transient
+   *    "keep going" user turn (never persisted/visible), append new deltas into the SAME
+   *    bubble, and UPDATE the row on completion. No auto-title.
+   */
   const runAssistant = useCallback(
-    async (history: Message[], isFirstExchange: boolean) => {
+    async (
+      history: Message[],
+      isFirstExchange: boolean,
+      resume?: { target: Message },
+    ) => {
       setBusy(true);
       setError(null);
       setSearching(null);
 
-      const assistantLocalId = newId('msg');
-      const placeholder: Message = {
-        id: assistantLocalId,
-        conversationId,
-        role: 'assistant',
-        content: '',
-        createdAt: Date.now(),
-        status: 'streaming',
-      };
-      setMessages([...history, placeholder]);
+      const resuming = !!resume;
+      const assistantLocalId = resume ? resume.target.id : newId('msg');
+
+      if (resume) {
+        // Keep the stopped bubble; flip it back to streaming and continue filling it.
+        setMessages((prev) =>
+          prev.map((m) => (m.id === assistantLocalId ? { ...m, status: 'streaming' } : m)),
+        );
+      } else {
+        const placeholder: Message = {
+          id: assistantLocalId,
+          conversationId,
+          role: 'assistant',
+          content: '',
+          createdAt: Date.now(),
+          status: 'streaming',
+        };
+        setMessages([...history, placeholder]);
+      }
 
       const controller = new AbortController();
       abortRef.current = controller;
@@ -105,8 +165,9 @@ export function useChat(
       // not on every message. Cleared as soon as the first byte arrives (onOpen).
       wakeTimerRef.current = setTimeout(() => setWaking(true), WAKE_DELAY_MS);
 
-      let collected = '';
-      const collectedSources: Source[] = [];
+      let collected = resume ? resume.target.content : '';
+      // Seed from the stopped turn's sources so a continuation merges with them, not replaces.
+      const collectedSources: Source[] = resume?.target.sources ? [...resume.target.sources] : [];
 
       const patchAssistant = (patch: Partial<Message>) =>
         setMessages((prev) => {
@@ -116,8 +177,27 @@ export function useChat(
           return next;
         });
 
+      // Persist: a new turn INSERTs; a continued turn UPDATEs the existing row.
+      const persist = async (status: Message['status']) => {
+        const sources = collectedSources.length ? collectedSources : undefined;
+        if (resuming) {
+          await updateMessage(assistantLocalId, { content: collected, sources, status });
+          await touchConversation(conversationId);
+        } else {
+          await appendMessage({
+            id: assistantLocalId,
+            conversationId,
+            role: 'assistant',
+            content: collected,
+            sources,
+            status,
+          });
+        }
+      };
+
       try {
-        const wire = await toWire(history);
+        const baseWire = await toWire(history);
+        const wire = resume ? [...baseWire, CONTINUE_TURN] : baseWire;
         await streamChat(
           wire,
           configRef.current,
@@ -132,8 +212,12 @@ export function useChat(
             },
             onTool: (info) => setSearching(info),
             onSources: (sources) => {
-              collectedSources.splice(0, collectedSources.length, ...sources);
-              patchAssistant({ sources: [...sources] });
+              // Union by URL so a continuation keeps the stopped turn's earlier sources.
+              const byUrl = new Map(collectedSources.map((s) => [s.url, s]));
+              for (const s of sources) if (!byUrl.has(s.url)) byUrl.set(s.url, s);
+              const merged = [...byUrl.values()];
+              collectedSources.splice(0, collectedSources.length, ...merged);
+              patchAssistant({ sources: [...merged] });
             },
           },
           controller.signal,
@@ -141,17 +225,10 @@ export function useChat(
 
         // Success — persist the finished assistant turn once.
         patchAssistant({ status: 'complete' });
-        await appendMessage({
-          id: assistantLocalId,
-          conversationId,
-          role: 'assistant',
-          content: collected,
-          sources: collectedSources.length ? collectedSources : undefined,
-          status: 'complete',
-        });
+        await persist('complete');
 
-        // Auto-title after the first real exchange.
-        if (isFirstExchange && collected.trim().length > 0) {
+        // Auto-title after the first real exchange (never on a continuation).
+        if (!resuming && isFirstExchange && collected.trim().length > 0) {
           const firstUser = history.find((m) => m.role === 'user');
           if (firstUser) {
             const title = await fetchTitle(firstUser.content, collected, configRef.current);
@@ -164,18 +241,16 @@ export function useChat(
       } catch (e: any) {
         const aborted = controller.signal.aborted;
         if (collected.trim().length > 0) {
-          // Commit whatever streamed (stop button / dropped connection mid-answer).
-          patchAssistant({ status: 'complete' });
-          await appendMessage({
-            id: assistantLocalId,
-            conversationId,
-            role: 'assistant',
-            content: collected,
-            sources: collectedSources.length ? collectedSources : undefined,
-            status: 'complete',
-          });
+          // A user Stop becomes 'stopped' (offers Retry/Continue); a dropped connection
+          // mid-answer commits what streamed as 'complete'.
+          const status: Message['status'] = aborted ? 'stopped' : 'complete';
+          patchAssistant({ status });
+          await persist(status);
+        } else if (resuming) {
+          // Nothing new streamed on a continue — leave the stopped turn as it was.
+          patchAssistant({ status: 'stopped' });
         } else {
-          // Nothing streamed — drop the placeholder.
+          // Nothing streamed at all — drop the placeholder.
           setMessages((prev) => prev.filter((m) => m.id !== assistantLocalId));
         }
         if (!aborted) setError(e?.message ?? 'Something went wrong.');
@@ -235,5 +310,23 @@ export function useChat(
     await runAssistant(history, history.length === 1);
   }, [busy, conversationId, messages, runAssistant]);
 
-  return { messages, busy, error, waking, searching, send, stop, regenerate, setError };
+  /** Resume a stopped reply in place (keeps the partial text, continues the same bubble). */
+  const continueReply = useCallback(async () => {
+    if (busy) return;
+    let lastAssistantIdx = -1;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === 'assistant') {
+        lastAssistantIdx = i;
+        break;
+      }
+    }
+    if (lastAssistantIdx < 0) return;
+    const target = messages[lastAssistantIdx];
+    if (target.status !== 'stopped') return;
+    // History through and including the stopped turn; the wire adds CONTINUE_TURN.
+    const history = messages.slice(0, lastAssistantIdx + 1);
+    await runAssistant(history, false, { target });
+  }, [busy, messages, runAssistant]);
+
+  return { messages, busy, error, waking, searching, send, stop, regenerate, continueReply, setError };
 }

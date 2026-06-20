@@ -3,8 +3,11 @@
 // re-render on the iPhone 7, see plan: streaming perf). Shows attachments, sources,
 // timestamp, and (for the latest assistant turn) copy/share/regenerate actions.
 import { memo, useMemo } from 'react';
-import { ActivityIndicator, Image, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useTheme } from '../state/ThemeContext';
+import type { RootStackParamList } from '../navigation/types';
 import { radius, spacing, type Colors } from '../theme';
 import type { Message } from '../storage/types';
 import { MarkdownMessage } from './MarkdownMessage';
@@ -21,13 +24,19 @@ function formatTime(ts: number): string {
 }
 
 function AttachmentPreviews({ message, styles }: { message: Message; styles: Styles }) {
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const atts = message.attachments ?? [];
   if (atts.length === 0) return null;
   return (
     <View style={styles.atts}>
       {atts.map((a) =>
         a.type === 'image' ? (
-          <Image key={a.id} source={{ uri: a.uri }} style={styles.thumb} resizeMode="cover" />
+          <Pressable
+            key={a.id}
+            onPress={() => navigation.navigate('ImageViewer', { uri: a.uri })}
+          >
+            <Image source={{ uri: a.uri }} style={styles.thumb} resizeMode="cover" />
+          </Pressable>
         ) : (
           <View key={a.id} style={styles.fileChip}>
             <Text style={styles.fileChipText} numberOfLines={1}>
@@ -46,6 +55,7 @@ function MessageBubbleImpl({
   wide,
   isLastAssistant,
   onRegenerate,
+  onContinue,
 }: {
   message: Message;
   busy: boolean;
@@ -53,9 +63,11 @@ function MessageBubbleImpl({
   wide?: boolean;
   isLastAssistant: boolean;
   onRegenerate?: () => void;
+  onContinue?: () => void;
 }) {
   const isUser = message.role === 'user';
   const streaming = message.status === 'streaming';
+  const stopped = message.status === 'stopped';
   const empty = message.content.length === 0;
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -80,7 +92,7 @@ function MessageBubbleImpl({
           // Plain text while tokens stream (cheap); upgrades to Markdown on completion.
           <Text style={styles.assistantText}>{message.content}</Text>
         ) : (
-          <MarkdownMessage content={message.content} />
+          <MarkdownMessage content={message.content} sources={message.sources} />
         )}
 
         {message.sources && message.sources.length > 0 ? (
@@ -90,11 +102,16 @@ function MessageBubbleImpl({
 
       {!isUser && !streaming && message.content.length > 0 ? (
         <View style={styles.metaRow}>
-          <Text style={styles.time}>{formatTime(message.createdAt)}</Text>
+          <View style={styles.metaTopRow}>
+            <Text style={styles.time}>{formatTime(message.createdAt)}</Text>
+            {stopped ? <Text style={styles.stoppedTag}>· Stopped</Text> : null}
+          </View>
           <MessageActions
             content={message.content}
             canRegenerate={isLastAssistant && !busy}
             onRegenerate={onRegenerate}
+            stopped={stopped}
+            onContinue={onContinue}
           />
         </View>
       ) : null}
@@ -118,7 +135,9 @@ const makeStyles = (c: Colors) =>
     userText: { color: c.textOnAccent, fontSize: 16, lineHeight: 22 },
     assistantText: { color: c.text, fontSize: 16, lineHeight: 22 },
     metaRow: { marginTop: 2, paddingHorizontal: 2 },
+    metaTopRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
     time: { color: c.textFaint, fontSize: 11, marginTop: spacing.xs },
+    stoppedTag: { color: c.accent, fontSize: 11, marginTop: spacing.xs, fontWeight: '600' },
     atts: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.xs },
     thumb: { width: 120, height: 120, borderRadius: radius.card, backgroundColor: c.surfaceAlt },
     fileChip: {
