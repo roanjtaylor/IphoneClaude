@@ -41,8 +41,7 @@ A multi-screen, persisted chat app (entry: `app/App.tsx` → `src/navigation/Roo
   timestamps.
 - **Settings** (`src/screens/SettingsScreen.tsx`) — server URL/secret (lock-protected), a
   **dynamic** model picker (`GET /api/models`), custom instructions, **appearance** (System /
-  Light / Dark), live **subscription usage** bars (`GET /api/usage`), and a "Test connection"
-  ping, all overriding the build-time defaults at runtime.
+  Light / Dark), and a "Test connection" ping, all overriding the build-time defaults at runtime.
 - **Light/dark theming** — `src/theme.ts` palettes resolved at runtime by
   `src/state/ThemeContext.tsx` from `useColorScheme()` or the Settings override; every screen
   reads its palette via `useTheme()`.

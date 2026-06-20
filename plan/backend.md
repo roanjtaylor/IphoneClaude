@@ -35,11 +35,10 @@ generalised from the sibling `a_TasteTrainer` server (one-shot → multi-turn ch
 | `GET`  | `/api/health` | `{ ok: true }`. Public (no secret) — liveness + keep-warm. |
 | `POST` | `/api/chat`   | Body `{ messages: [{role, content, attachments?}], model?, systemPrompt? }`. Streams SSE: `delta {text}` · `tool {name,query?}` · `sources {sources}` … then `done {}` (or `error {error}`). Aborts on client disconnect. Requires `x-app-secret`. |
 | `POST` | `/api/title`  | Body `{ user, assistant?, model? }` → `{ title }`. One short non-streaming call to auto-name a chat after its first exchange. Requires `x-app-secret`. |
-| `GET`  | `/api/usage`  | Real subscription utilization (five-hour + seven-day % and reset times — the numbers Claude Code's `/usage` shows). `503` if the OAuth token is missing/expired. Requires `x-app-secret`. |
 | `GET`  | `/api/models` | `{ models }` — the live Anthropic model list for this subscription (so new releases appear in the picker without an app update), cached ~1 h with a static fallback (always `200`). Requires `x-app-secret`. |
 
-`/api/usage` and `/api/models` both go through `server/src/services/oauthApi.ts`, which calls
-Anthropic's OAuth endpoints with the host's `CLAUDE_CODE_OAUTH_TOKEN` (no API key, no cost).
+`/api/models` goes through `server/src/services/oauthApi.ts`, which calls Anthropic's OAuth
+`/v1/models` with the host's `CLAUDE_CODE_OAUTH_TOKEN` (no API key, no cost).
 
 JSON body limit is **15 mb** (base64 attachments inflate ~33%).
 
@@ -124,30 +123,15 @@ deploy work-in-progress.
 | Var | Purpose |
 | --- | --- |
 | `CLAUDE_CODE_OAUTH_TOKEN` | Subscription auth for chat/models (from `claude setup-token`). |
-| `CLAUDE_REFRESH_TOKEN` | *Optional.* Enables the live **usage** display (see below). |
 | `APP_SHARED_SECRET` | Must match the value baked into the app. |
 | `PORT` | `7860` (set in the Dockerfile; HF routes HTTPS to it). |
 | `ANTHROPIC_API_KEY` | **Must stay UNSET.** |
 
-**Usage display & the `user:profile` scope:** `GET /api/usage` calls `/api/oauth/usage`, which
-requires the **`user:profile`** scope. The long-lived `setup-token` only grants `user:inference`
-(fine for chat + models), so usage 403s with just that token — the app then shows a clear
-"needs a profile-scoped token" note instead of numbers. To get the real percentages, set
-`CLAUDE_REFRESH_TOKEN`: the server refreshes it on demand into a short-lived **full-scope**
-access token (refreshing preserves the login's scopes, incl. `user:profile`) and caches it in
-memory, only refreshing near expiry. Get the value from a logged-in machine:
-
-```bash
-node -e "console.log(JSON.parse(require('fs').readFileSync(require('os').homedir()+'/.claude/.credentials.json','utf8')).claudeAiOauth.refreshToken)"
-```
-
-Add it as a Space Secret (`CLAUDE_REFRESH_TOKEN`); the Space restarts and usage starts working.
-⚠️ **Caveats (this is the fragile bit):** refresh tokens **rotate** (each use invalidates the
-previous one) and HF's free container has **no persistent storage**, so (a) the same login used
-on your laptop will desync — your local `claude` may need a re-login — and (b) after a long
-idle/restart the original secret value can be stale. If usage later errors with a refresh 401,
-re-run the command above and update the secret. Leave `CLAUDE_REFRESH_TOKEN` unset to simply
-skip live usage (chat/models are unaffected).
+> **Note:** there is intentionally no in-app usage display. The real plan-utilization endpoint
+> needs the `user:profile` scope, which the long-lived `setup-token` doesn't grant, and the
+> profile-scoped refresh-token workaround is too fragile on a free, ephemeral host (rotating
+> tokens, no persistent storage, conflicts with the local `claude` login). Check usage with the
+> `/usage` command in Claude Code instead.
 
 **Maintenance:** `setup-token` tokens are long-lived (~1 yr) but not eternal. If chat starts
 returning auth errors, re-run `claude setup-token` and update the Space's

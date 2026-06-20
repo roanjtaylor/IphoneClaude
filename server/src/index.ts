@@ -10,7 +10,6 @@ import cors from 'cors';
 import { PORT, APP_SHARED_SECRET } from './config.ts';
 import { chatRouter } from './routes/chat.ts';
 import { titleRouter } from './routes/title.ts';
-import { usageRouter } from './routes/usage.ts';
 import { modelsRouter } from './routes/models.ts';
 
 const app = express();
@@ -79,7 +78,6 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 
 app.use('/api/chat', chatRouter);
 app.use('/api/title', titleRouter);
-app.use('/api/usage', usageRouter);
 app.use('/api/models', modelsRouter);
 
 // Turn anything a route throws into JSON the client can display, not a bare 500.

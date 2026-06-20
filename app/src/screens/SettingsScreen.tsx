@@ -2,7 +2,7 @@
 // explicit unlock — the server URL/secret. The connection fields are locked by default so
 // they can't be changed by accident (a wrong URL/secret silently breaks the app).
 // "Test connection" pings /api/health.
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Pressable,
@@ -17,60 +17,10 @@ import { useSettings } from '../state/SettingsContext';
 import { useTheme } from '../state/ThemeContext';
 import { defaultSettings, type ThemeMode } from '../storage/settings';
 import { MODEL_OPTIONS } from '../config';
-import {
-  fetchModels,
-  fetchUsage,
-  pingHealth,
-  type ModelOption,
-  type Usage,
-  type UsageWindow,
-} from '../api';
+import { fetchModels, pingHealth, type ModelOption } from '../api';
 import { radius, spacing, type Colors } from '../theme';
 
 const FALLBACK_MODELS: ModelOption[] = MODEL_OPTIONS.map((m) => ({ id: m.value, label: m.label }));
-
-type Styles = ReturnType<typeof makeStyles>;
-
-/** Format a reset timestamp as a short, friendly "resets …" string. */
-function resetLabel(resetsAt: string | null): string {
-  if (!resetsAt) return '';
-  const d = new Date(resetsAt);
-  if (Number.isNaN(d.getTime())) return '';
-  const now = Date.now();
-  const diffH = (d.getTime() - now) / 3_600_000;
-  if (diffH <= 0) return 'resetting…';
-  if (diffH < 24) {
-    return `resets ${d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
-  }
-  return `resets ${d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}`;
-}
-
-function UsageBar({
-  styles,
-  colors,
-  label,
-  window,
-}: {
-  styles: Styles;
-  colors: Colors;
-  label: string;
-  window: UsageWindow;
-}) {
-  const pct = Math.max(0, Math.min(100, Math.round(window.utilization)));
-  const bar = pct >= 90 ? colors.errorText : colors.accent;
-  return (
-    <View style={styles.usageBlock}>
-      <View style={styles.usageRow}>
-        <Text style={styles.usageLabel}>{label}</Text>
-        <Text style={styles.usageValue}>{pct}%</Text>
-      </View>
-      <View style={styles.track}>
-        <View style={[styles.fill, { width: `${pct}%`, backgroundColor: bar }]} />
-      </View>
-      {window.resetsAt ? <Text style={styles.caption}>{resetLabel(window.resetsAt)}</Text> : null}
-    </View>
-  );
-}
 
 const THEME_OPTIONS: { label: string; value: ThemeMode }[] = [
   { label: 'System', value: 'system' },
@@ -92,9 +42,6 @@ export function SettingsScreen() {
   // Connection fields are read-only until the user explicitly unlocks them.
   const [unlocked, setUnlocked] = useState(false);
 
-  const [usage, setUsage] = useState<Usage | null>(null);
-  const [usageError, setUsageError] = useState<string | null>(null);
-  const [usageLoading, setUsageLoading] = useState(false);
   const [models, setModels] = useState<ModelOption[]>(FALLBACK_MODELS);
   const [modelOpen, setModelOpen] = useState(false);
 
@@ -102,26 +49,6 @@ export function SettingsScreen() {
     () => models.find((m) => m.id === model)?.label ?? model,
     [models, model],
   );
-
-  const loadUsage = useCallback(async () => {
-    setUsageLoading(true);
-    const r = await fetchUsage({
-      serverUrl: settings.serverUrl,
-      appSharedSecret: settings.appSharedSecret,
-    });
-    if (r.ok) {
-      setUsage(r.usage);
-      setUsageError(null);
-    } else {
-      setUsage(null);
-      setUsageError(r.error);
-    }
-    setUsageLoading(false);
-  }, [settings.serverUrl, settings.appSharedSecret]);
-
-  useEffect(() => {
-    void loadUsage();
-  }, [loadUsage]);
 
   // Pull the live model list so new releases (e.g. Fable) appear without an app update.
   useEffect(() => {
@@ -261,34 +188,6 @@ export function SettingsScreen() {
           <Text style={styles.primaryText}>{saved ? 'Saved ✓' : 'Save'}</Text>
         </Pressable>
 
-        {/* Usage — token/cost estimates reported by the server. */}
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Usage</Text>
-          <Pressable onPress={loadUsage} hitSlop={8} disabled={usageLoading}>
-            <Text style={styles.editLink}>{usageLoading ? 'Refreshing…' : 'Refresh'}</Text>
-          </Pressable>
-        </View>
-        {usage && (usage.fiveHour || usage.sevenDay) ? (
-          <View style={styles.usageCard}>
-            {usage.fiveHour ? (
-              <UsageBar styles={styles} colors={colors} label="Current session (5h)" window={usage.fiveHour} />
-            ) : null}
-            {usage.sevenDay ? (
-              <UsageBar styles={styles} colors={colors} label="This week" window={usage.sevenDay} />
-            ) : null}
-            {usage.sevenDaySonnet ? (
-              <UsageBar styles={styles} colors={colors} label="Sonnet (weekly)" window={usage.sevenDaySonnet} />
-            ) : null}
-            <Text style={styles.caption}>
-              Percentage of your Claude plan used. This is the same data as the “/usage” command.
-            </Text>
-          </View>
-        ) : (
-          <Text style={styles.caption}>
-            {usageLoading ? 'Loading usage…' : usageError ? `Usage unavailable: ${usageError}` : 'Usage unavailable.'}
-          </Text>
-        )}
-
         {/* Connection section — locked by default. */}
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Connection</Text>
@@ -410,19 +309,6 @@ const makeStyles = (c: Colors) =>
     sectionTitle: { color: c.textStrong, fontSize: 16, fontWeight: '700' },
     editLink: { color: c.accent, fontSize: 14, fontWeight: '600' },
     unlockHint: { color: c.textMuted, fontSize: 13, fontStyle: 'italic' },
-    usageCard: {
-      backgroundColor: c.surface,
-      borderRadius: radius.card,
-      padding: spacing.md,
-      marginTop: spacing.sm,
-      gap: spacing.md,
-    },
-    usageBlock: { gap: spacing.xs },
-    usageRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-    usageLabel: { color: c.text, fontSize: 14, fontWeight: '600' },
-    usageValue: { color: c.textStrong, fontSize: 14, fontWeight: '700' },
-    track: { height: 8, borderRadius: 4, backgroundColor: c.surfaceAlt, overflow: 'hidden' },
-    fill: { height: '100%', borderRadius: 4 },
     primary: {
       backgroundColor: c.accent,
       borderRadius: radius.pill,

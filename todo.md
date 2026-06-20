@@ -45,8 +45,6 @@ subscription** (no API cost). What's already built:
   `SettingsContext` + AsyncStorage (no rebuild).
 - **Light/dark theming** — `theme.ts` palettes resolved at runtime by `ThemeContext` from
   `useColorScheme()` or the Settings override; every screen reads `useTheme()`.
-- **Real subscription usage** — `GET /api/usage` → `oauthApi.ts` (`GET …/oauth/usage`):
-  five-hour + seven-day utilization % and reset times, shown as live progress bars.
 - **Wake-from-sleep UX** — "Waking Claude up…" banner + keep-warm `/api/health` ping on focus.
 - Haptics + message timestamps; Claude **mascot** on empty states (`ClaudeMascot.tsx`);
   **landscape** orientation; **shared-secret** auth.
@@ -71,7 +69,7 @@ subscription** (no API cost). What's already built:
       already reads it from the gitignored `app/.env`.
 - [ ] **On-device pass** on the iPhone 7 (Expo Go tunnel, then a TestFlight build): markdown,
       persistence across app kill, attachments, web-search sources, stop, copy/export/regenerate,
-      light/dark, usage bars, dynamic model list, search.
+      light/dark, dynamic model list, search.
 
 ### High priority — close the parity gap
 - [ ] **Edit & resubmit a user message** + **branch** from an earlier turn (official lets you

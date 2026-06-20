@@ -8,7 +8,7 @@ iPhone 7 (iOS 15.8.5, TestFlight)        Hugging Face Space (Docker, always-on)
 │ Expo / React Native app    │  (SSE)   │ Node + Express "Claude server"      │
 │  - chat list + chat + setts │ ───────► │  POST /api/chat   (SSE, multimodal) │
 │  - Markdown, attachments    │          │  POST /api/title  GET /api/health   │
-│  - light/dark, pinch-zoom   │          │  GET  /api/usage  GET /api/models   │
+│  - light/dark, pinch-zoom   │          │  GET  /api/models                   │
 │  - SQLite history (local)   │ ◄─────── │  @anthropic-ai/claude-agent-sdk     │
 │  - x-app-secret header      │          │  NO ANTHROPIC_API_KEY ⇒ subscription│
 │  (built by EAS → TestFlight)│          │  auth via CLAUDE_CODE_OAUTH_TOKEN   │
@@ -47,9 +47,8 @@ always-on Space (rather than the laptop) is what makes "laptop-free" true.
    the app appends them live, shows the search state, and renders sources. A final `done` (or
    `error`) ends the stream, and the app persists the completed assistant turn to SQLite.
 
-Two side endpoints keep Settings live without an app update: `GET /api/usage` returns the real
-subscription utilization (the same numbers Claude Code's `/usage` shows) and `GET /api/models`
-returns the live Anthropic model list. Both read through the host's OAuth token
+A side endpoint keeps Settings current without an app update: `GET /api/models` returns the live
+Anthropic model list (so new releases appear in the picker), read through the host's OAuth token
 (`server/src/services/oauthApi.ts`).
 
 ## Key tech decisions (and constraints behind them)

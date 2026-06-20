@@ -147,49 +147,6 @@ export async function fetchTitle(
   }
 }
 
-/** A usage window (% of the plan limit used) + when it resets. */
-export type UsageWindow = { utilization: number; resetsAt: string | null };
-
-/** Real subscription usage — the numbers Claude Code's `/usage` shows. */
-export type Usage = {
-  fiveHour: UsageWindow | null;
-  sevenDay: UsageWindow | null;
-  sevenDayOpus: UsageWindow | null;
-  sevenDaySonnet: UsageWindow | null;
-  fetchedAt: number;
-};
-
-/** Result of a usage fetch: the data, or a human-readable reason it's unavailable. */
-export type UsageResult = { ok: true; usage: Usage } | { ok: false; error: string };
-
-/** Fetch real subscription usage from the server, surfacing WHY it failed (not just null). */
-export async function fetchUsage(
-  config: Pick<ApiConfig, 'serverUrl' | 'appSharedSecret'>,
-): Promise<UsageResult> {
-  let res: Response;
-  try {
-    res = await fetch(`${config.serverUrl}/api/usage`, {
-      method: 'GET',
-      headers: { 'x-app-secret': config.appSharedSecret },
-    });
-  } catch {
-    return { ok: false, error: 'Could not reach the server.' };
-  }
-  if (!res.ok) {
-    // The server returns { error } — pass its message through so the real cause is visible
-    // (e.g. a token that can't read usage) instead of a generic "check the secret".
-    let message = res.status === 401 ? 'Unauthorized — check the shared secret.' : `Usage error (${res.status}).`;
-    try {
-      const b = (await res.json()) as { error?: string };
-      if (b?.error) message = b.error;
-    } catch {
-      /* keep the status message */
-    }
-    return { ok: false, error: message };
-  }
-  return { ok: true, usage: (await res.json()) as Usage };
-}
-
 /** A model the account can use, from the live Anthropic model list. */
 export type ModelOption = { id: string; label: string };
 
