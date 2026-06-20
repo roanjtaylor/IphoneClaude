@@ -27,22 +27,26 @@ function readToken(): string | null {
   }
 }
 
-async function oauthGet(pathname: string): Promise<any> {
+async function oauthGet(pathname: string, opts: { apiVersion?: boolean } = {}): Promise<any> {
   const token = readToken();
   if (!token) throw new Error('No Claude OAuth token available on the server.');
-  const res = await fetch(`https://api.anthropic.com${pathname}`, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-      'User-Agent': USER_AGENT,
-      'anthropic-version': '2023-06-01',
-      'anthropic-beta': OAUTH_HEADERS_BETA,
-    },
-  });
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${token}`,
+    'Content-Type': 'application/json',
+    'User-Agent': USER_AGENT,
+    'anthropic-beta': OAUTH_HEADERS_BETA,
+  };
+  // `/v1/*` (the standard API, e.g. models) requires anthropic-version. The `/api/oauth/*`
+  // account endpoints (usage) are called by the real CLI WITHOUT it — and sending it there
+  // can change how the request is validated — so default to omitting it.
+  if (opts.apiVersion) headers['anthropic-version'] = '2023-06-01';
+  const res = await fetch(`https://api.anthropic.com${pathname}`, { headers });
   if (!res.ok) {
     const body = await res.text().catch(() => '');
-    console.warn(`[oauthApi] ${pathname} → ${res.status} ${body.slice(0, 200)}`);
-    throw new Error(`Anthropic ${pathname} → ${res.status}`);
+    console.warn(`[oauthApi] ${pathname} → ${res.status} ${body.slice(0, 300)}`);
+    // Bubble up the upstream status AND a snippet of the body so the cause is visible in the
+    // app (e.g. an auth-scope error) instead of a generic failure.
+    throw new Error(`Anthropic ${pathname} → ${res.status}${body ? `: ${body.slice(0, 160)}` : ''}`);
   }
   return res.json();
 }
@@ -64,7 +68,7 @@ const MODELS_TTL_MS = 60 * 60 * 1000; // 1h — the list rarely changes.
 export async function listModels(now: number): Promise<ModelOption[]> {
   if (modelsCache && now - modelsCache.at < MODELS_TTL_MS) return modelsCache.models;
   try {
-    const body = await oauthGet('/v1/models?limit=100');
+    const body = await oauthGet('/v1/models?limit=100', { apiVersion: true });
     const models: ModelOption[] = (body?.data ?? [])
       .filter((m: any) => typeof m?.id === 'string')
       .map((m: any) => ({ id: m.id, label: m.display_name || m.id }));

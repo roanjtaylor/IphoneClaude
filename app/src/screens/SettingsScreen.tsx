@@ -93,6 +93,7 @@ export function SettingsScreen() {
   const [unlocked, setUnlocked] = useState(false);
 
   const [usage, setUsage] = useState<Usage | null>(null);
+  const [usageError, setUsageError] = useState<string | null>(null);
   const [usageLoading, setUsageLoading] = useState(false);
   const [models, setModels] = useState<ModelOption[]>(FALLBACK_MODELS);
   const [modelOpen, setModelOpen] = useState(false);
@@ -104,11 +105,17 @@ export function SettingsScreen() {
 
   const loadUsage = useCallback(async () => {
     setUsageLoading(true);
-    const u = await fetchUsage({
+    const r = await fetchUsage({
       serverUrl: settings.serverUrl,
       appSharedSecret: settings.appSharedSecret,
     });
-    setUsage(u);
+    if (r.ok) {
+      setUsage(r.usage);
+      setUsageError(null);
+    } else {
+      setUsage(null);
+      setUsageError(r.error);
+    }
     setUsageLoading(false);
   }, [settings.serverUrl, settings.appSharedSecret]);
 
@@ -278,7 +285,7 @@ export function SettingsScreen() {
           </View>
         ) : (
           <Text style={styles.caption}>
-            {usageLoading ? 'Loading usage…' : 'Usage unavailable — check the connection/secret.'}
+            {usageLoading ? 'Loading usage…' : usageError ? `Usage unavailable: ${usageError}` : 'Usage unavailable.'}
           </Text>
         )}
 
