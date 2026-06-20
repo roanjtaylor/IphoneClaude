@@ -106,6 +106,19 @@ curl -N -X POST http://localhost:5174/api/chat \
 **Re-deploys:** copy changed files into the Space clone, `git commit`, `git push`. Updating a
 Secret restarts the Space automatically.
 
+**Auto-deploy on push (preferred):** a `pre-push` git hook keeps the Space in sync, so you
+don't run the copy/commit/push dance by hand. When you push this repo's **`main`**, the hook
+mirrors `server/` into the Space clone (default: a sibling `../hf-space`; override with
+`HF_SPACE_DIR`), commits, and pushes to HF — which rebuilds. It's best-effort and only fires
+for `main`, so a hosting hiccup never blocks your push to origin and feature branches don't
+deploy work-in-progress.
+
+- Scripts: [`../scripts/deploy-hf.sh`](../scripts/deploy-hf.sh) (the mirror+commit+push, also
+  runnable by hand: `bash scripts/deploy-hf.sh`) and [`../.githooks/pre-push`](../.githooks/pre-push).
+- One-time per clone: `git config core.hooksPath .githooks` (it's local config, not committed).
+- Still requires the Space clone to exist (the hook pushes *to* it); the script prints the
+  `git clone` command if it's missing.
+
 **Env vars on the host:**
 
 | Var | Purpose |
