@@ -27,8 +27,69 @@ function readToken(): string | null {
   }
 }
 
-async function oauthGet(pathname: string, opts: { apiVersion?: boolean } = {}): Promise<any> {
-  const token = readToken();
+// ---- Refresh-token flow (for the profile-scoped usage endpoint) --------------
+// The long-lived host token from `claude setup-token` only has `user:inference` — enough for
+// chat + models, but `/api/oauth/usage` needs `user:profile`. So for usage we mint a short-
+// lived, full-scope access token by refreshing a login refresh token (`CLAUDE_REFRESH_TOKEN`).
+// Refreshing preserves the original login's scopes, so the result includes `user:profile`.
+// We cache the access token in memory and only refresh when it's near expiry, to minimise
+// refresh-token rotation. (See plan/backend.md for the caveats and how to set the secret.)
+const TOKEN_URL = 'https://console.anthropic.com/v1/oauth/token';
+const OAUTH_CLIENT_ID = '9d1c250a-e61b-44d9-88ed-5944d1962f5e'; // Claude Code public OAuth client
+const REFRESH_SCOPES = 'user:inference user:profile';
+
+// ONLY the explicit env var — never the local `~/.claude/.credentials.json`. Using a refresh
+// token rotates it (the old one is invalidated), so reading the local file would break your
+// laptop's `claude` login the first time usage is fetched in dev. Locally there's no need: the
+// login access token already carries `user:profile`, so usage works through the normal path.
+function readRefreshToken(): string | null {
+  return process.env.CLAUDE_REFRESH_TOKEN ? process.env.CLAUDE_REFRESH_TOKEN.trim() : null;
+}
+
+// In-memory only: the access token, when it expires, and the latest (rotated) refresh token.
+let profileToken: { accessToken: string; expiresAt: number; refreshToken: string } | null = null;
+
+/**
+ * Return a valid `user:profile`-scoped access token, refreshing on demand. Returns null when no
+ * refresh token is configured (callers then fall back to the setup-token, which 403s on usage —
+ * surfaced to the app as a clear message). Throws if a configured refresh token is rejected.
+ */
+async function getProfileAccessToken(now: number): Promise<string | null> {
+  if (profileToken && now < profileToken.expiresAt - 60_000) return profileToken.accessToken;
+  const refreshToken = profileToken?.refreshToken ?? readRefreshToken();
+  if (!refreshToken) return null;
+
+  const res = await fetch(TOKEN_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'User-Agent': USER_AGENT },
+    body: JSON.stringify({
+      grant_type: 'refresh_token',
+      refresh_token: refreshToken,
+      client_id: OAUTH_CLIENT_ID,
+      scope: REFRESH_SCOPES,
+    }),
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    console.warn(`[oauthApi] token refresh → ${res.status} ${body.slice(0, 300)}`);
+    profileToken = null; // force a fresh read from the secret next time
+    throw new Error(`Usage token refresh failed (${res.status}). Re-set CLAUDE_REFRESH_TOKEN.`);
+  }
+  const data = (await res.json()) as { access_token: string; refresh_token?: string; expires_in?: number };
+  profileToken = {
+    accessToken: data.access_token,
+    // Keep the rotated refresh token in memory so the next refresh chains correctly.
+    refreshToken: data.refresh_token ?? refreshToken,
+    expiresAt: now + (data.expires_in ? data.expires_in * 1000 : 3_600_000),
+  };
+  return profileToken.accessToken;
+}
+
+async function oauthGet(
+  pathname: string,
+  opts: { apiVersion?: boolean; token?: string } = {},
+): Promise<any> {
+  const token = opts.token ?? readToken();
   if (!token) throw new Error('No Claude OAuth token available on the server.');
   const headers: Record<string, string> = {
     Authorization: `Bearer ${token}`,
@@ -99,7 +160,10 @@ function win(raw: any): UsageWindow | null {
 }
 
 export async function getSubscriptionUsage(now: number): Promise<SubscriptionUsage> {
-  const body = await oauthGet('/api/oauth/usage');
+  // Usage needs `user:profile`: use a refreshed full-scope token when one is configured,
+  // otherwise fall back to the host token (which 403s, surfaced as a clear message in the app).
+  const token = await getProfileAccessToken(now);
+  const body = await oauthGet('/api/oauth/usage', token ? { token } : {});
   return {
     fiveHour: win(body?.five_hour),
     sevenDay: win(body?.seven_day),
