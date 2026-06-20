@@ -6,8 +6,10 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  type ImageLoadEventData,
   type ImageStyle,
   type ImageResizeMode,
+  type NativeSyntheticEvent,
   Pressable,
   type StyleProp,
   StyleSheet,
@@ -24,6 +26,8 @@ type Props = {
   resizeMode?: ImageResizeMode;
   /** Tap handler (e.g. open the full-screen viewer). Long-press still saves/shares. */
   onPress?: () => void;
+  onLoad?: (e: NativeSyntheticEvent<ImageLoadEventData>) => void;
+  onError?: () => void;
 };
 
 /** Resolve `uri` to a local file path, downloading a remote image if needed. */
@@ -43,7 +47,7 @@ async function toLocalFile(uri: string): Promise<string> {
   return local;
 }
 
-export function SavableImage({ uri, style, resizeMode = 'contain', onPress }: Props) {
+export function SavableImage({ uri, style, resizeMode = 'contain', onPress, onLoad, onError }: Props) {
   const [busy, setBusy] = useState(false);
 
   const saveToPhotos = async () => {
@@ -89,7 +93,7 @@ export function SavableImage({ uri, style, resizeMode = 'contain', onPress }: Pr
 
   return (
     <Pressable onPress={onPress} onLongPress={onLongPress} delayLongPress={300}>
-      <Image source={{ uri }} style={style} resizeMode={resizeMode} />
+      <Image source={{ uri }} style={style} resizeMode={resizeMode} onLoad={onLoad} onError={onError} />
       {busy ? (
         <View style={[StyleSheet.absoluteFill, styles.busy]}>
           <ActivityIndicator color="#fff" />

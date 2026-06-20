@@ -2,8 +2,8 @@
 // inline code, links (tappable), images (capped to bubble width), and fenced code blocks
 // (delegated to CodeBlock for highlight + copy). Pure-JS (react-native-markdown-display),
 // safe in Expo Go on iOS 15.
-import { memo, useEffect, useMemo, useState } from 'react';
-import { Image, Linking, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { memo, useMemo, useState } from 'react';
+import { Linking, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import Markdown, { type RenderRules } from 'react-native-markdown-display';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -14,68 +14,40 @@ import { radius, spacing, type Colors } from '../theme';
 import { CodeBlock } from './CodeBlock';
 import { SavableImage } from './SavableImage';
 
-/**
- * An image embedded in an assistant reply (Markdown `![alt](url)`). Sizes itself to the
- * image's natural aspect ratio (fitted to the bubble width) instead of a fixed square, and
- * if the URL can't be loaded (404, blocked host, not really an image) it degrades to a
- * tappable link rather than a blank box — so a reply image always reads as *something* useful.
- */
 function MarkdownImage({
   uri,
-  alt,
   maxWidth,
   colors,
   onPress,
 }: {
   uri: string;
-  alt?: string;
   maxWidth: number;
   colors: Colors;
   onPress: () => void;
 }) {
   const [ratio, setRatio] = useState<number | null>(null);
-  const [failed, setFailed] = useState(false);
 
-  useEffect(() => {
-    let alive = true;
-    setRatio(null);
-    setFailed(false);
-    // getSize both measures the image and verifies it actually loads; its error path is our
-    // signal to fall back to a link.
-    Image.getSize(
-      uri,
-      (w, h) => {
-        if (alive && w > 0 && h > 0) setRatio(w / h);
-      },
-      () => {
-        if (alive) setFailed(true);
-      },
-    );
-    return () => {
-      alive = false;
-    };
-  }, [uri]);
-
-  if (failed) {
-    return (
-      <Text
-        style={{ color: colors.link, textDecorationLine: 'underline', marginVertical: spacing.sm }}
-        onPress={() => Linking.openURL(uri).catch(() => {})}
-      >
-        🖼 {alt?.trim() || 'View image'}
-      </Text>
-    );
-  }
-
-  // Cap height so a very tall image can't dominate the bubble; fall back to a 3:2 box until
-  // the real ratio is known.
+  // Always attempt to render the image — a surfaceAlt background acts as placeholder while
+  // loading, and as a subtle indicator if the URL fails. Never fall back to a text link here:
+  // that hides images that would have loaded (e.g. the Image.getSize path is unreliable for
+  // remote URLs). If Claude embedded an invalid URL the worst outcome is a quiet grey box.
   const height = ratio ? Math.min(maxWidth / ratio, maxWidth * 1.4) : maxWidth * 0.66;
   return (
     <SavableImage
       uri={uri}
-      style={{ width: maxWidth, height, borderRadius: radius.card, marginVertical: spacing.sm }}
+      style={{
+        width: maxWidth,
+        height,
+        borderRadius: radius.card,
+        marginVertical: spacing.sm,
+        backgroundColor: colors.surfaceAlt,
+      }}
       resizeMode="contain"
       onPress={onPress}
+      onLoad={(e) => {
+        const { width: w, height: h } = e.nativeEvent.source;
+        if (w > 0 && h > 0) setRatio(w / h);
+      }}
     />
   );
 }
@@ -127,7 +99,6 @@ function MarkdownMessageImpl({ content, sources }: { content: string; sources?: 
         <MarkdownImage
           key={node.key}
           uri={src}
-          alt={node.attributes?.alt}
           maxWidth={maxImg}
           colors={colors}
           onPress={() => navigation.navigate('ImageViewer', { uri: src })}
