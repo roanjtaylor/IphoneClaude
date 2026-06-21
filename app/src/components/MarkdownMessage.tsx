@@ -3,7 +3,7 @@
 // (delegated to CodeBlock for highlight + copy). Pure-JS (react-native-markdown-display),
 // safe in Expo Go on iOS 15.
 import { memo, useMemo, useState } from 'react';
-import { Linking, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { Linking, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import Markdown, { type RenderRules } from 'react-native-markdown-display';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -105,17 +105,10 @@ function MarkdownMessageImpl({ content, sources }: { content: string; sources?: 
         />
       );
     },
-    // Wrap tables in a horizontal scroll so wide ones aren't squashed into the bubble.
-    table: (node, children) => (
-      <ScrollView
-        key={node.key}
-        horizontal
-        showsHorizontalScrollIndicator
-        style={mdStyles.tableScroll}
-      >
-        <View style={mdStyles.table}>{children}</View>
-      </ScrollView>
-    ),
+    // No custom `table` rule: the library default renders a plain View, which participates
+    // in the flex column layout like any other block — no height gaps, no ScrollView bugs.
+    // Tables that are wider than the bubble will overflow (rare in practice for 2–4 columns
+    // on this app's content), which is far preferable to the blank-page glitch.
   };
 
   return (
@@ -174,13 +167,20 @@ const makeMdStyles = (c: Colors) =>
       paddingHorizontal: 4,
     },
     hr: { backgroundColor: c.border, height: StyleSheet.hairlineWidth, marginVertical: spacing.sm },
-    tableScroll: { marginVertical: spacing.sm },
-    table: { borderWidth: StyleSheet.hairlineWidth, borderColor: c.border, borderRadius: 6 },
+    // Table: plain View layout — the library default renders table/thead/tbody/tr/th/td as
+    // Views with flexDirection:'row' on tr, so cells naturally tile horizontally.
+    // overflow:'hidden' clips cell content to the table's borderRadius corners.
+    table: {
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: c.border,
+      borderRadius: 6,
+      overflow: 'hidden',
+      marginVertical: spacing.sm,
+    },
     thead: { backgroundColor: c.surfaceAlt },
-    // flex:0 overrides the lib's default flex:1 (which, inside a horizontal ScrollView,
-    // would collapse columns); minWidth keeps them legible and gives the row an intrinsic
-    // width to scroll.
-    th: { flex: 0, padding: spacing.sm, color: c.textStrong, fontWeight: '700', minWidth: 110 },
-    td: { flex: 0, padding: spacing.sm, color: c.text, borderColor: c.border, minWidth: 110 },
-    tr: { borderBottomWidth: StyleSheet.hairlineWidth, borderColor: c.border },
+    tr: { borderBottomWidth: StyleSheet.hairlineWidth, borderColor: c.border, flexDirection: 'row' },
+    // flex:1 (library default) lets cells share row width equally. No minWidth so narrow
+    // tables don't overflow; text inside wraps naturally.
+    th: { flex: 1, padding: spacing.sm },
+    td: { flex: 1, padding: spacing.sm },
   });
