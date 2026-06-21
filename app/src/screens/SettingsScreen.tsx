@@ -13,6 +13,9 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { RootStackParamList } from '../navigation/types';
 import { useSettings } from '../state/SettingsContext';
 import { useTheme } from '../state/ThemeContext';
 import { defaultSettings, type ThemeMode } from '../storage/settings';
@@ -32,6 +35,18 @@ export function SettingsScreen() {
   const { settings, update, reset } = useSettings();
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+
+  const [meetCode, setMeetCode] = useState('');
+
+  const joinMeet = () => {
+    const code = meetCode.trim().replace(/^https?:\/\/meet\.google\.com\//i, '');
+    if (!code) {
+      Alert.alert('Enter a meeting code', 'Paste the code or full link from your meeting invite.');
+      return;
+    }
+    navigation.navigate('GoogleMeet', { meetCode: code });
+  };
 
   const [serverUrl, setServerUrl] = useState(settings.serverUrl);
   const [secret, setSecret] = useState(settings.appSharedSecret);
@@ -121,6 +136,23 @@ export function SettingsScreen() {
   return (
     <SafeAreaView style={styles.screen} edges={['left', 'right', 'bottom']}>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+        {/* ── Google Meet ── */}
+        <Text style={styles.sectionTitleTop}>Google Meet</Text>
+        <TextInput
+          style={styles.input}
+          value={meetCode}
+          onChangeText={setMeetCode}
+          autoCapitalize="none"
+          autoCorrect={false}
+          placeholder="Meeting code (e.g. abc-defg-hij)"
+          placeholderTextColor={colors.textMuted}
+          returnKeyType="go"
+          onSubmitEditing={joinMeet}
+        />
+        <Pressable style={styles.meetButton} onPress={joinMeet}>
+          <Text style={styles.meetButtonText}>Join Google Meet</Text>
+        </Pressable>
+
         <Text style={styles.label}>Appearance</Text>
         <View style={styles.models}>
           {THEME_OPTIONS.map((t) => (
@@ -240,6 +272,15 @@ const makeStyles = (c: Colors) =>
   StyleSheet.create({
     screen: { flex: 1, backgroundColor: c.bg },
     content: { padding: spacing.lg, gap: spacing.sm },
+    sectionTitleTop: { color: c.textStrong, fontSize: 16, fontWeight: '700', marginBottom: spacing.xs },
+    meetButton: {
+      backgroundColor: '#1a73e8',
+      borderRadius: radius.pill,
+      paddingVertical: spacing.md,
+      alignItems: 'center',
+      marginTop: spacing.xs,
+    },
+    meetButtonText: { color: '#fff', fontSize: 16, fontWeight: '700' },
     label: { color: c.textMuted, fontSize: 13, marginTop: spacing.md, fontWeight: '600' },
     input: {
       backgroundColor: c.surface,

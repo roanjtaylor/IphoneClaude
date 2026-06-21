@@ -22,6 +22,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     bundleIdentifier: 'com.roanjtaylor.claude7',
     infoPlist: {
       ITSAppUsesNonExemptEncryption: false,
+      NSMicrophoneUsageDescription:
+        'Claude7 needs microphone access for Google Meet calls.',
     },
   },
   plugins: [

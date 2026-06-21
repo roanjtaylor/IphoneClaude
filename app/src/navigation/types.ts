@@ -6,4 +6,5 @@ export type RootStackParamList = {
   ImageViewer: { uri: string };
   Projects: undefined;
   ProjectDetail: { projectId: string; title?: string };
+  GoogleMeet: { meetCode: string };
 };

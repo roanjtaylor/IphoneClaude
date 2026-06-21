@@ -66,6 +66,13 @@ subscription** (no API cost). What's already built:
 - Haptics + message timestamps; Claude **mascot** on empty states (`ClaudeMascot.tsx`);
   **landscape** orientation; **shared-secret** auth.
 
+**Google Meet**
+- **Google Meet via WebView** — Settings screen has a "Join Google Meet" input (accepts bare code
+  or full link) that opens a full-screen `WKWebView` with a desktop Chrome user-agent to bypass
+  Google's mobile-browser redirect wall. `sharedCookiesEnabled` shares Safari's existing Google
+  session so no re-login is needed. ⚠️ **Not verified end-to-end on device** — needs a real
+  meeting test to confirm sign-in flow, camera/mic permissions, and video/audio work on iOS 15.
+
 **Branding / build**
 - Custom **logo + icon** (`assets/icon.svg` → `icon.png` 1024², orange burst on white) + splash,
   wired in `app.config.ts`. Re-export with:
